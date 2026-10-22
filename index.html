@@ -1,0 +1,1130 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Echorae : répète ton rôle avec les voix de ta troupe."><meta name="theme-color" content="#12151C"><meta name="mobile-web-app-capable" content="yes">
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+</head><body>
+<title>Echorae</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500;6..96,700&family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<style>
+/* Layout: one-screen app, script column in the middle, tab bar at the bottom; rehearsal opens a dark "plateau" overlay */
+:root{
+  --bg:#ECEEF2; --surface:#FFFFFF; --ink:#1B2130; --muted:#5A6375; --line:#D3D8E1;
+  --accent:#A85F00; --accent-ink:#FFFFFF; --lamp:#F2B036; --danger:#B3261E; --chl:34%;
+  --stage:#12151C; --stage-ink:#F1EEE6; --stage-muted:#8E95A5;
+  --f-display:"Bodoni Moda", "Didot", Georgia, serif;
+  --f-script:"Cormorant Garamond", Garamond, "Times New Roman", serif;
+  --f-ui:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#101319; --surface:#191D26; --ink:#E6E8EE; --muted:#9AA2B3; --line:#2A303C;
+  --accent:#F0A43A; --accent-ink:#1C1300; --lamp:#F2B036; --danger:#F2847C; --chl:72%;
+  --stage:#0A0C11; --stage-ink:#F1EEE6; --stage-muted:#858C9C; color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#101319; --surface:#191D26; --ink:#E6E8EE; --muted:#9AA2B3; --line:#2A303C;
+  --accent:#F0A43A; --accent-ink:#1C1300; --lamp:#F2B036; --danger:#F2847C; --chl:72%;
+  --stage:#0A0C11; --stage-ink:#F1EEE6; --stage-muted:#858C9C; color-scheme:dark }
+html{box-sizing:border-box;height:100%}
+*,*::before,*::after{box-sizing:inherit}
+body{height:100%;background:var(--bg);color:var(--ink);font-family:var(--f-ui);font-size:15px;line-height:1.45}
+#app{height:100%;display:grid;grid-template-rows:auto 1fr auto}
+header{padding-block:10px 8px;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));display:flex;align-items:baseline;gap:10px;border-bottom:1px solid var(--line)}
+header h1{font-family:var(--f-display);font-weight:700;font-size:22px;margin:0;letter-spacing:.01em}
+header .sync{margin-left:auto;font-size:12px;color:var(--muted);white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+header .sync i{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+header .sync.on i{background:#2E9D5B}
+header .sync.busy i{background:var(--lamp)}
+header .me{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap;max-width:40%;overflow:hidden}
+header .me img{width:22px;height:22px;border-radius:50%;flex:none}
+header .me span{overflow:hidden;text-overflow:ellipsis}
+.by{font-size:11px;color:var(--muted);display:block;margin-top:2px;font-family:var(--f-ui)}
+.people{display:flex;flex-direction:column;gap:8px}
+.person{display:flex;align-items:center;gap:10px;font-size:14px}
+.person img{width:28px;height:28px;border-radius:50%;flex:none}
+.person small{color:var(--muted)}
+.stage-did{font-family:var(--f-script);font-style:italic;font-size:18px;color:#C9C4B8;line-height:1.3}
+header .play{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+main{overflow-y:auto;overflow-x:hidden;padding-block:14px 120px;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
+.wrap{max-width:680px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+nav{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);background:var(--surface);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+nav button{all:unset;cursor:pointer;text-align:center;padding:10px 4px 12px;font-size:12px;font-weight:500;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px}
+nav button svg{width:22px;height:22px}
+nav button[aria-current="true"]{color:var(--accent)}
+nav button:focus-visible{outline:2px solid var(--accent);outline-offset:-4px}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);font-weight:600}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.btn{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:500 14px var(--f-ui);padding:9px 14px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}
+.btn.danger{color:var(--danger)}
+.btn:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn:disabled{opacity:.45;cursor:default}
+select,input[type=text],textarea{font:15px var(--f-ui);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%;min-width:0}
+textarea{min-height:90px;resize:vertical;font-family:var(--f-script);font-size:18px;line-height:1.35}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1 1 140px}
+.note{font-size:13px;color:var(--muted)}
+.msg{font-size:14px;padding:10px 12px;border-radius:8px;background:var(--bg);border:1px dashed var(--line)}
+.msg.err{border-color:var(--danger);color:var(--danger)}
+.stats{display:flex;gap:18px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
+.stats b{font-family:var(--f-display);font-size:22px;display:block;line-height:1}
+.stats span{font-size:12px;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{appearance:none;cursor:pointer;font:600 13px var(--f-script);letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:4px 10px;border-radius:999px;display:inline-flex;gap:6px;align-items:center}
+.chip i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.chip small{font:500 11px var(--f-ui);color:var(--muted);letter-spacing:0}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{all:unset;cursor:pointer;text-align:center;padding:8px 4px;font-size:13px;font-weight:500;color:var(--muted)}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.seg button:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+.toggle{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:14px}
+.toggle input{width:22px;height:22px;accent-color:var(--accent);flex:none}
+input[type=range]{width:100%;accent-color:var(--accent)}
+
+/* Script, set like a French theatre edition: names in spaced small caps, stage directions in italics */
+.script{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 16px;font-family:var(--f-script);font-size:19px;line-height:1.38;display:flex;flex-direction:column;gap:8px}
+.b-head{text-align:center;font-weight:700;letter-spacing:.14em;text-transform:uppercase;font-size:15px;padding-top:10px;cursor:pointer}
+.b-did{font-style:italic;color:var(--muted);padding-left:1.4em;cursor:pointer}
+.b-line{cursor:pointer;overflow-wrap:anywhere}
+.who{font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:.82em;margin-right:.35em}
+.b-did .who{font-style:normal}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-left:6px;vertical-align:middle}
+.editor{font-family:var(--f-ui);font-size:14px;background:var(--bg);border:1px solid var(--accent);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.sel{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
+
+/* Voices */
+.list{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.item{all:unset;cursor:pointer;display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--line)}
+.item:last-child{border-bottom:0}
+.item:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+.item .n{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.item .t{font-family:var(--f-script);font-size:17px;line-height:1.3;min-width:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.st{font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.st.ok{border-color:var(--accent);color:var(--accent)}
+.st.tts{border-style:dashed}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -10px 30px rgba(0,0,0,.18);padding-block:14px calc(16px + env(safe-area-inset-bottom,0px));padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));max-height:80%;overflow:auto}
+.sheet .in{max-width:680px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+.sheet .txt{font-family:var(--f-script);font-size:21px;line-height:1.35;max-height:34vh;overflow:auto}
+.recbtn{width:72px;height:72px;border-radius:50%;border:3px solid var(--line);background:var(--surface);cursor:pointer;display:grid;place-items:center;flex:none}
+.recbtn span{width:28px;height:28px;border-radius:50%;background:var(--danger);transition:border-radius .2s,width .2s,height .2s}
+.recbtn.on span{border-radius:6px;width:24px;height:24px}
+.recbtn.on{border-color:var(--danger);animation:pulse 1.4s infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 8px rgba(179,38,30,.15)}}
+.timer{font-variant-numeric:tabular-nums;font-size:20px;font-weight:500}
+.filebtn{position:relative;overflow:hidden}
+.filebtn input{position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:40px;z-index:2}
+.native-file{font:14px var(--f-ui);color:var(--muted);max-width:100%}
+
+/* Stage overlay */
+.stage{position:fixed;inset:0;z-index:40;background:var(--stage);color:var(--stage-ink);display:grid;grid-template-rows:auto 1fr auto;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
+.stage .top{display:flex;justify-content:space-between;align-items:center;padding-block:12px;gap:10px;font-size:12px;color:var(--stage-muted);letter-spacing:.08em;text-transform:uppercase}
+.stage .top .scene{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stage .mid{display:flex;flex-direction:column;justify-content:center;gap:22px;max-width:680px;width:100%;margin:0 auto;overflow:auto;min-height:0}
+.prev{font-family:var(--f-script);font-size:17px;color:var(--stage-muted);line-height:1.3;max-height:5.2em;overflow:hidden}
+.cur{font-family:var(--f-script);font-size:26px;line-height:1.3;overflow-wrap:anywhere}
+.cur .who,.prev .who{display:block;margin-bottom:4px;font-size:15px}
+.cur.did{font-style:italic;color:#C9C4B8}
+.cur.head{text-align:center;letter-spacing:.14em;text-transform:uppercase;font-weight:700;font-size:20px}
+.cue{display:flex;align-items:center;gap:10px;font:600 12px var(--f-ui);letter-spacing:.12em;text-transform:uppercase;color:var(--lamp)}
+.cue::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--lamp);box-shadow:0 0 14px var(--lamp)}
+.hidden-text{letter-spacing:.3em;color:var(--stage-muted)}
+.bar{height:6px;border-radius:3px;background:#2A2F3B;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--lamp)}
+.ctrl{display:flex;justify-content:center;align-items:center;gap:18px;padding-block:14px 18px}
+.cbtn{all:unset;cursor:pointer;width:52px;height:52px;border-radius:50%;display:grid;place-items:center;border:1px solid #333A48;color:var(--stage-ink)}
+.cbtn.big{width:66px;height:66px;background:var(--lamp);border-color:var(--lamp);color:#1C1300}
+.cbtn svg{width:24px;height:24px}
+.cbtn:focus-visible{outline:2px solid var(--lamp);outline-offset:3px}
+.done-btn{all:unset;cursor:pointer;align-self:flex-start;border:1px solid var(--lamp);color:var(--lamp);border-radius:999px;padding:8px 16px;font:500 14px var(--f-ui)}
+@media (prefers-reduced-motion: reduce){.recbtn.on{animation:none}}
+</style>
+
+<div id="app">
+  <header><h1>Echorae</h1><span class="play" id="hdrPlay"></span><span class="sync" id="sync"></span><span class="me" id="meChip" hidden></span></header>
+  <main id="main"><div class="wrap" id="view"></div></main>
+  <nav>
+    <button data-tab="piece" aria-current="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h7"/></svg>Pièce</button>
+    <button data-tab="voix"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>Voix</button>
+    <button data-tab="rep"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 5c3 0 5 2 5 6v8M21 5c-3 0-5 2-5 6v8M3 5h18"/><path d="M10 19h4"/></svg>Répéter</button>
+  </nav>
+</div>
+<div id="sheet" class="sheet" hidden></div>
+<div id="stage" class="stage" hidden></div>
+
+<script>
+"use strict";
+/* ---------- utils ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const uid = () => Math.random().toString(36).slice(2, 10);
+const words = t => (t || "").split(/\s+/).filter(Boolean).length;
+const HUES = [8, 205, 140, 280, 38, 330, 95, 240, 175, 20];
+
+/* ---------- storage (IndexedDB, falls back to memory) ---------- */
+const DB = {
+  db: null, mem: { plays: new Map(), audio: new Map() },
+  async open() {
+    try {
+      this.db = await new Promise((res, rej) => {
+        const r = indexedDB.open("souffleur", 1);
+        r.onupgradeneeded = () => { const d = r.result; d.createObjectStore("plays", { keyPath: "id" }); d.createObjectStore("audio"); };
+        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+      });
+    } catch (e) { this.db = null; }
+  },
+  req(store, mode, fn) {
+    return new Promise((res, rej) => {
+      const t = this.db.transaction(store, mode); const r = fn(t.objectStore(store));
+      t.oncomplete = () => res(r ? r.result : undefined); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
+    });
+  },
+  async get(s, k) { if (this.db) try { return await this.req(s, "readonly", st => st.get(k)); } catch (e) {} return this.mem[s].get(k); },
+  async put(s, v, k) { this.mem[s].set(k ?? v.id, v); if (this.db) try { await this.req(s, "readwrite", st => k === undefined ? st.put(v) : st.put(v, k)); } catch (e) {} },
+  async del(s, k) { this.mem[s].delete(k); if (this.db) try { await this.req(s, "readwrite", st => st.delete(k)); } catch (e) {} },
+  async all(s) { if (this.db) try { return await this.req(s, "readonly", st => st.getAll()); } catch (e) {} return [...this.mem[s].values()]; },
+  async keys(s) { if (this.db) try { return await this.req(s, "readonly", st => st.getAllKeys()); } catch (e) {} return [...this.mem[s].keys()]; }
+};
+
+/* ---------- parser: text -> répliques / didascalies ---------- */
+const UP = "A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸŒÆ";
+const SPK = new RegExp(`^((?:M\\.|MME|MLLE|Mme|Mlle|Me)\\s*)?([${UP}][${UP}'’\\- ]*[${UP}])(?:\\s*([.:,])\\s*(.*))?$`, "u");
+const STOP = /^(ACTE|SC[ÈE]NE|FIN|RIDEAU|PERSONNAGES|ENTRACTE|PROLOGUE|[ÉE]PILOGUE|TABLEAU|CHAPITRE|NOIR)\b/;
+const HEAD = /^(ACTE|SC[ÈE]NE|TABLEAU|PROLOGUE|[ÉE]PILOGUE|ENTRACTE)\b/i;
+const BLACK = /^(NOIR|RIDEAU|FIN)\b/;
+const GROUP = /^(ENSEMBLE|TOUS|TOUTES|CH[ŒO]EUR)\b/;
+const fold = t => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+
+function speakerOf(line) {
+  let paren = "";
+  const pm = line.match(/^(.*?\S)\s*\(([^)]*)\)\s*$/);
+  if (pm && new RegExp(`^[${UP}'’\\-. ]+$`, "u").test(pm[1])) { line = pm[1]; paren = pm[2].trim(); }
+  const m = line.match(SPK); if (!m) return null;
+  const core = m[2].replace(/\s+/g, " ").trim();
+  if (STOP.test(core)) return null;
+  if ((core.match(/[A-Za-zÀ-ÿŒœÆæ]/g) || []).length < 2) return null;
+  if (core.split(" ").length > 4) return null;
+  const name = ((m[1] || "").toUpperCase().replace(/\s+/g, " ") + core).trim();
+  return { name, sep: m[3] || "", rest: (m[4] || "").trim(), paren };
+}
+
+function parseText(raw) {
+  let lines = raw.replace(/ /g, " ").split(/\r?\n/).map(l => l.replace(/\s+/g, " ").trim()).filter(l => !/^\d{1,4}$/.test(l));
+  const firstHead = lines.findIndex(l => HEAD.test(l) && l.length < 70);
+  const preface = firstHead > 0 ? lines.slice(0, firstHead).filter(Boolean) : [];
+  if (firstHead > 0) lines = lines.slice(firstHead);
+  const counts = {}, alone = {};
+  lines.forEach(l => { const s = speakerOf(l); if (s) { counts[s.name] = (counts[s.name] || 0) + 1; if (!s.sep) alone[s.name] = 1; } });
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const set = new Set(Object.keys(counts).filter(n => counts[n] >= 2 || total < 6 || (alone[n] && total > 20 && n.split(" ").length <= 2)));
+
+  const blocks = []; let cur = null, inParen = false, lastWho = "";
+  const push = (type, who, text) => { cur = { id: uid(), type, who: who || "", text }; blocks.push(cur); return cur; };
+  const append = t => {
+    if (/[A-Za-zÀ-ÿ]-$/.test(cur.text) && /^[a-zà-ÿ]/.test(t)) cur.text = cur.text.slice(0, -1) + t;
+    else cur.text += (cur.text ? " " : "") + t;
+  };
+  if (preface.length) push("didasc", "", preface.join(" — ")), cur = null;
+  for (const l of lines) {
+    if (!l) { if (cur && cur.type !== "line") cur = null; continue; }
+    if (inParen) { append(l); if (l.includes(")")) { inParen = false; cur = null; } continue; }
+    if (HEAD.test(l) && l.length < 70) { push("heading", "", l); cur = null; lastWho = ""; continue; }
+    if (BLACK.test(l) && l.length < 40) { push("didasc", "", l.charAt(0) + l.slice(1).toLowerCase()); cur = null; lastWho = ""; if (/\bFIN\b/.test(l)) break; continue; }
+    const s = speakerOf(l);
+    if (s && set.has(s.name)) {
+      if (s.sep === "," && [...set].some(n => n !== s.name && s.rest.startsWith(n))) { push("didasc", "", l); cur = null; lastWho = ""; continue; }
+      let name = s.name;
+      if (s.paren) {
+        const real = [...set].find(n => fold(n) === fold(s.paren));
+        if (real) { push("didasc", real, s.name.charAt(0) + s.name.slice(1).toLowerCase()); name = real; }
+        else push("didasc", name, s.paren);
+      }
+      lastWho = name; let rest = s.rest;
+      if (s.sep === "," && rest) {
+        const m = rest.match(/^(.*?)(?:\.\s*—\s*|\s—\s*|\.\s+(?=[A-ZÀ-Ý«]))(.*)$/);
+        if (m) { push("didasc", name, m[1].trim()); rest = m[2]; }
+        else { push("didasc", name, rest.replace(/\.$/, "")); rest = ""; }
+      }
+      push("line", name, rest.replace(/^—\s*/, ""));
+      continue;
+    }
+    if (l.startsWith("(")) {
+      const close = l.indexOf(")");
+      if (close < 0) { push("didasc", lastWho, l); inParen = true; continue; }
+      push("didasc", lastWho, l.slice(0, close + 1)); cur = null;
+      const rest = l.slice(close + 1).trim();
+      if (rest) { if (lastWho) push("line", lastWho, rest); else push("didasc", "", rest); }
+      continue;
+    }
+    if (cur && (cur.type === "line" || cur.type === "didasc")) { append(l); continue; }
+    if (!lastWho) {
+      for (let j = blocks.length - 1; j >= 0 && blocks[j].type === "didasc"; j--) {
+        const f = " " + fold(blocks[j].text).replace(/[^A-Z]+/g, " ") + " ";
+        const hit = [...set].find(n => !GROUP.test(n) && f.includes(" " + fold(n) + " "));
+        if (hit) { lastWho = hit; break; }
+      }
+    }
+    if (lastWho) push("line", lastWho, l); else push("didasc", "", l);
+  }
+  const out = [];
+  for (const b of blocks) {
+    if (b.type !== "line") { out.push(b); continue; }
+    for (const p of b.text.split(/(\([^)]*\))/)) {
+      const t = p.trim(); if (!t || !/[\p{L}\d]/u.test(t)) continue;
+      out.push({ id: uid(), type: /^\(.*\)$/.test(t) ? "didasc" : "line", who: b.who, text: t });
+    }
+  }
+  out.forEach(b => { if (b.type === "didasc") b.text = b.text.replace(/^\(\s*/, "").replace(/\s*\)\.?$/, ""); });
+  const merged = [];
+  for (const b of out.filter(b => b.text && b.text.trim())) {
+    const l = merged[merged.length - 1];
+    if (l && l.type === "didasc" && b.type === "didasc" && l.who === b.who && !/^(Noir|Rideau|Fin)\b/.test(l.text)) l.text += " " + b.text;
+    else merged.push(b);
+  }
+  return merged;
+}
+
+/* ---------- PDF -> text ---------- */
+/* Italic runs become "(…)" so the parser treats them as didascalies; lines repeated on most pages (headers, footers) are dropped. */
+async function pdfToText(file) {
+  if (!window.pdfjsLib) throw new Error("Le lecteur PDF n'a pas pu se charger. Vérifie ta connexion puis recharge la page.");
+  const data = file.arrayBuffer ? new Uint8Array(await file.arrayBuffer()) : file;
+  const pdf = await pdfjsLib.getDocument({ data, isEvalSupported: false, disableFontFace: true }).promise;
+  const pages = []; let chars = 0;
+  const renderLine = segs => {
+    const runs = [];
+    for (const sg of segs) { const l = runs[runs.length - 1]; if (l && l.it === sg.it) l.t += sg.t; else runs.push({ ...sg }); }
+    return runs.map(r => r.it && /[\p{L}]/u.test(r.t) ? "(" + r.t.replace(/[()]/g, "").trim() + ")" : r.t.trim()).filter(Boolean).join(" ");
+  };
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    try { await page.getOperatorList(); } catch (e) {}
+    const tc = await page.getTextContent();
+    const fonts = {};
+    const isIt = fn => { if (!(fn in fonts)) { let n = ""; try { n = page.commonObjs.get(fn).name || ""; } catch (e) {} fonts[fn] = /italic|oblique/i.test(n); } return fonts[fn]; };
+    const lines = []; let segs = [], lastY = null, lastEnd = null, lastH = 12;
+    const flush = () => { if (segs.some(s => s.t.trim())) lines.push({ t: renderLine(segs), y: lastY, h: lastH }); segs = []; lastEnd = null; };
+    for (const it of tc.items) {
+      if (!("str" in it)) continue;
+      if (!it.str) { if (it.hasEOL) flush(); continue; }
+      const x = it.transform[4], y = it.transform[5], h = Math.abs(it.transform[3]) || it.height || 12;
+      if (lastY !== null && Math.abs(y - lastY) > h * 0.5) flush();
+      let t = it.str;
+      if (lastEnd !== null && x - lastEnd > h * 0.15 && !t.startsWith(" ") && !segs[segs.length - 1]?.t.endsWith(" ")) t = " " + t;
+      segs.push({ t, it: isIt(it.fontName) }); lastY = y; lastEnd = x + (it.width || 0); lastH = h;
+      if (it.hasEOL) flush();
+    }
+    flush();
+    lines.forEach(l => chars += l.t.length);
+    pages.push(lines);
+  }
+  const norm = t => t.replace(/[()]/g, "").replace(/\d+/g, "#").replace(/\s+/g, " ").trim();
+  const seen = {};
+  pages.forEach(ls => new Set([...ls.slice(0, 3), ...ls.slice(-3)].map(l => norm(l.t))).forEach(k => seen[k] = (seen[k] || 0) + 1));
+  const rep = new Set(Object.keys(seen).filter(k => seen[k] >= Math.max(3, pages.length * 0.4)));
+  const out = [];
+  pages.forEach(ls => {
+    const keep = ls.filter(l => !rep.has(norm(l.t)) && !/^#\s*[-/]\s*#$|^#$/.test(norm(l.t)));
+    keep.forEach((ln, i) => {
+      if (i && keep[i - 1].y != null && ln.y != null && keep[i - 1].y - ln.y > ln.h * 1.9) out.push("");
+      out.push(ln.t);
+    });
+  });
+  return { text: out.join("\n"), pages: pdf.numPages, chars };
+}
+
+/* ---------- sample (Molière, domaine public) ---------- */
+const SAMPLE = `LE MÉDECIN MALGRÉ LUI
+Molière, 1666 — extrait d'exemple
+
+ACTE I
+SCÈNE PREMIÈRE
+SGANARELLE, MARTINE, paraissant sur le théâtre en se querellant.
+
+SGANARELLE. Non, je te dis que je n'en veux rien faire, et que c'est à moi de parler et d'être le maître.
+MARTINE. Et je te dis, moi, que je veux que tu vives à ma fantaisie, et que je ne me suis point mariée avec toi pour souffrir tes fredaines.
+SGANARELLE. Ô la grande fatigue que d'avoir une femme ! et qu'Aristote a bien raison, quand il dit qu'une femme est pire qu'un démon !
+MARTINE. Voyez un peu l'habile homme, avec son benêt d'Aristote !
+SGANARELLE. Oui, habile homme : trouve-moi un faiseur de fagots qui sache, comme moi, raisonner des choses, qui ait servi six ans un fameux médecin, et qui ait su, dans son jeune âge, son rudiment par cœur.
+MARTINE. Peste du fou fieffé !
+SGANARELLE. Peste de la carogne !
+MARTINE. Que maudits soient l'heure et le jour où je m'avisai d'aller dire oui !
+SGANARELLE. Que maudit soit le bec cornu de notaire qui me fit signer ma ruine !
+(Il lui tourne le dos.)
+MARTINE. C'est bien à toi, vraiment, à te plaindre de cette affaire. Devrais-tu être un seul moment sans rendre grâce au Ciel de m'avoir pour ta femme ?`;
+
+/* ---------- state ---------- */
+const DEF = { me: "", hear: "apres", showMine: true, spw: 0.5, tts: true, readDid: false, start: 0 };
+const S = { plays: [], play: null, rec: new Set(), tab: "piece", edit: -1, msg: null, paste: false, voixWho: "", sheetIdx: -1, micBlocked: false, renameChar: "",
+  cloud: false, cloudReady: false, saving: false, local: [], localPlays: [], localRec: new Set(), sheetMsg: null, booting: true };
+
+const key = b => S.play.id + ":" + b.id;
+function chars() { const s = []; (S.play?.blocks || []).forEach(b => { if (b.type === "line" && b.who && !s.includes(b.who)) s.push(b.who); }); return s; }
+function cstyle(who) { const i = chars().indexOf(who); return i < 0 ? "" : `color:hsl(${HUES[i % HUES.length]} 55% var(--chl))`; }
+function cdot(who) { const i = chars().indexOf(who); return `background:hsl(${HUES[(i < 0 ? 0 : i) % HUES.length]} 55% var(--chl))`; }
+
+/* Per-device settings (my role, timing…) live in localStorage; the play itself lives in the account store when available. */
+const LS = {
+  get(k) { try { return JSON.parse(localStorage.getItem("souffleur:" + k)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem("souffleur:" + k, JSON.stringify(v)); } catch (e) {} }
+};
+function settingsFor(id, base) { return { ...DEF, ...(base || {}), ...(LS.get("set:" + id) || {}), ...((typeof U !== "undefined" && U.prefs[id]) || {}) }; }
+let prefT;
+function saveSettings() {
+  if (!S.play) return; LS.set("set:" + S.play.id, S.play.settings);
+  if (!S.cloud) { DB.put("plays", S.play); return; }
+  if (!U.prefRef) return;
+  U.prefs[S.play.id] = { ...S.play.settings };
+  clearTimeout(prefT); const data = { plays: JSON.parse(JSON.stringify(U.prefs)) };
+  prefT = setTimeout(() => U.prefRef.set(data).catch(() => {}), 700);
+}
+/* ---------- who is viewing ---------- */
+const U = { api: null, me: null, owner: false, canWrite: true, canUpload: true, prefRef: null, prefs: {}, names: {}, asked: new Set() };
+function nameOf(id) { const p = U.names[id]; return id && U.me && id === U.me.id ? "toi" : (p && p.name) || "un comédien"; }
+function wantNames(ids) {
+  if (!U.api) return;
+  const need = [...new Set(ids)].filter(i => i && !U.asked.has(i)); if (!need.length) return;
+  need.forEach(i => U.asked.add(i));
+  U.api.profiles(need).then(r => { Object.assign(U.names, r || {}); softRender(); }).catch(() => {});
+}
+async function startUser() {
+  try {
+    const u = await window.claude.use("user"); if (!u) return;
+    U.api = u; U.me = await u.me(); U.owner = !!U.me.isOwner;
+    const w = await u.can("data.write"); if (w === false) U.canWrite = false;
+    if (U.me.id) {
+      U.names[U.me.id] = U.me;
+      U.prefRef = C.db.doc("data/users/" + U.me.id + "/prefs");
+      try { const d = await U.prefRef.get(); if (d.exists) U.prefs = (d.data() || {}).plays || {}; } catch (e) {}
+    }
+    const chip = $("#meChip");
+    if (chip && (U.me.name || U.me.id)) { chip.hidden = false; chip.innerHTML = `<img alt="" src="${esc(U.me.avatarUrl)}"><span></span>`; chip.querySelector("span").textContent = U.me.name || "Connecté"; }
+  } catch (e) {}
+}
+
+/* ---------- account sync (db + assets) ---------- */
+const C = { db: null, assets: null, unsubPlays: null, unsubAudio: null, audio: new Map(), urls: new Map(), chain: Promise.resolve() };
+function errText(e) {
+  const c = e && e.code;
+  return c === "too_large" ? "Ce fichier est trop gros (20 Mo maximum)."
+    : c === "quota_or_state" || c === "quota_exceeded" ? "L'espace de stockage de l'appli est plein. Efface des voix inutiles puis réessaie."
+    : c === "rate_limited" || c === "resource_exhausted" ? "Trop d'envois d'un coup. Attends quelques secondes puis réessaie."
+    : c === "no_assets" || c === "not_granted" ? "Ton compte ne permet pas d'ajouter des voix sur cette appli."
+    : c === "unsupported_type" ? "Ce format audio n'est pas lisible par l'appli. Dans les réglages du dictaphone, choisis le format M4A (ou AAC/MP3) puis réenregistre."
+    : (e && e.message) || "Erreur inconnue.";
+}
+function queue(fn) {
+  const run = C.chain.then(fn);
+  C.chain = run.catch(e => { S.saving = false; S.msg = { err: true, t: "La sauvegarde sur ton compte a échoué : " + errText(e) + " Tes modifications restent affichées ; réessaie dans un moment." }; render(); });
+  return run;
+}
+function setStatus() {
+  const el = $("#sync"); if (!el) return;
+  if (S.booting) { el.className = "sync"; el.innerHTML = "<i></i>Connexion…"; return; }
+  if (!S.cloud) { el.className = "sync"; el.innerHTML = "<i></i>Sur cet appareil"; return; }
+  el.className = "sync " + (S.saving ? "busy" : "on");
+  el.innerHTML = "<i></i>" + (S.saving ? "Enregistrement…" : "Synchronisé");
+}
+let saveT;
+function savePlay() {
+  const p = S.play; if (!p) return; clearTimeout(saveT);
+  if (!S.cloud) { saveT = setTimeout(() => DB.put("plays", p), 300); return; }
+  p.updated = Date.now(); p.loadedAt = p.updated; S.saving = true; setStatus();
+  saveT = setTimeout(() => queue(() => cloudWrite(p)), 800);
+}
+async function cloudWrite(p) {
+  const chunks = []; let cur = [], size = 0;
+  for (const b of p.blocks) { const n = JSON.stringify(b).length; if (cur.length && size + n > 90000) { chunks.push(cur); cur = []; size = 0; } cur.push(b); size += n; }
+  chunks.push(cur);
+  const pid = i => `plays/${p.id}/parts/p${String(i).padStart(4, "0")}`;
+  for (let i = 0; i < chunks.length; i++) await C.db.doc(pid(i)).set({ n: i, blocks: chunks[i] });
+  for (let i = chunks.length; i < (p.parts || 0); i++) await C.db.doc(pid(i)).delete();
+  p.parts = chunks.length;
+  await C.db.doc("plays/" + p.id).set({ title: p.title, created: p.created || Date.now(), updated: p.updated || Date.now(), parts: p.parts });
+  p.pending = false; S.saving = false; setStatus();
+}
+async function loadParts(p) {
+  const snap = await C.db.collection(`plays/${p.id}/parts`).get();
+  const parts = snap.docs.map(d => d.data()).sort((a, b) => a.n - b.n);
+  p.blocks = JSON.parse(JSON.stringify(parts.flatMap(x => x.blocks || [])));
+  p.loadedAt = p.updated;
+}
+function watchAudio(p) {
+  C.unsubAudio?.(); C.unsubAudio = null; C.audio.clear(); S.rec = new Set();
+  if (!p || !S.cloud) return;
+  C.unsubAudio = C.db.collection("audio").where("play", "==", p.id).onSnapshot(snap => {
+    C.audio.clear(); S.rec = new Set();
+    C.by = new Map();
+    snap.docs.forEach(d => { const x = d.data(); const k = x.play + ":" + x.block; C.audio.set(k, x.asset); S.rec.add(k); if (x.by) C.by.set(k, x.by); });
+    wantNames([...C.by.values()]);
+    softRender();
+  }, () => {});
+}
+async function onPlays(snap) {
+  const old = new Map(S.plays.map(p => [p.id, p]));
+  const list = snap.docs.map(d => {
+    const m = d.data(), o = old.get(d.id);
+    if (o && o.cloud) { o.title = m.title; o.updated = m.updated; o.parts = m.parts; o.created = m.created; return o; }
+    return { id: d.id, title: m.title, created: m.created, updated: m.updated, parts: m.parts, blocks: null, cloud: true, settings: settingsFor(d.id) };
+  });
+  S.plays.forEach(p => { if (p.cloud && p.pending && !list.includes(p)) list.push(p); });
+  list.sort((a, b) => (b.created || 0) - (a.created || 0));
+  S.plays = list;
+  if (!S.cloudReady) { S.cloudReady = true; const last = LS.get("last"); await selectPlay(list.find(p => p.id === last) || list[0] || null); return; }
+  const cur = S.play ? list.find(p => p.id === S.play.id) : null;
+  if (!cur) { await selectPlay(list[0] || null); return; }
+  if (cur.blocks && (cur.updated || 0) > (cur.loadedAt || 0) && !S.saving && S.edit < 0) { await loadParts(cur); }
+  softRender();
+}
+async function selectPlay(p) {
+  S.play = p; S.edit = -1; S.voixWho = ""; S.sheetIdx = -1; S.confirmDel = false; S.renameChar = "";
+  if (p) LS.set("last", p.id);
+  if (S.cloud) { watchAudio(p); if (p && !p.blocks) { render(); try { await loadParts(p); } catch (e) { S.msg = { err: true, t: "Impossible de charger la pièce : " + errText(e) }; } } }
+  render();
+}
+async function newPlay(title, blocks) {
+  const c = []; blocks.forEach(b => { if (b.type === "line" && !c.includes(b.who)) c.push(b.who); });
+  const p = { id: uid(), title, blocks, created: Date.now(), updated: Date.now(), settings: { ...DEF, me: c[0] || "" } };
+  LS.set("set:" + p.id, p.settings);
+  if (S.cloud) {
+    Object.assign(p, { cloud: true, pending: true, loadedAt: p.updated });
+    S.plays.unshift(p); S.saving = true; await selectPlay(p); setStatus();
+    await queue(() => cloudWrite(p));
+  } else { await DB.put("plays", p); S.plays.unshift(p); S.play = p; S.edit = -1; S.voixWho = ""; }
+  return p;
+}
+async function deletePlay(p) {
+  if (!S.cloud) {
+    for (const b of p.blocks) { const k = p.id + ":" + b.id; if (S.rec.has(k)) { DB.del("audio", k); S.rec.delete(k); } }
+    await DB.del("plays", p.id); S.plays = S.plays.filter(x => x.id !== p.id);
+    if (!S.plays.length) await newPlay("Le Médecin malgré lui (exemple)", parseText(SAMPLE));
+    S.play = S.plays[0]; render(); return;
+  }
+  const audio = [...C.audio.entries()];
+  S.saving = true; setStatus();
+  await queue(async () => {
+    for (const [k, id] of audio) { await C.db.doc("audio/" + k.replace(":", "~")).delete(); if (C.assets) await C.assets.delete(id).catch(() => {}); }
+    for (let i = 0; i < (p.parts || 0); i++) await C.db.doc(`plays/${p.id}/parts/p${String(i).padStart(4, "0")}`).delete();
+    await C.db.doc("plays/" + p.id).delete();
+    S.saving = false; setStatus();
+  });
+  S.plays = S.plays.filter(x => x.id !== p.id);
+  await selectPlay(S.plays[0] || null);
+}
+
+/* Audio is stored as an artifact asset; only webm/mp4 containers are accepted, so other formats are re-encoded first. */
+async function toUploadable(blob) {
+  const t = (blob.type || "").toLowerCase(), n = (blob.name || "").toLowerCase();
+  if (t.includes("webm") || n.endsWith(".webm")) return { blob, type: "video/webm" };
+  if (/mp4|m4a/.test(t) || /\.(m4a|mp4)$/.test(n)) return { blob, type: "video/mp4" };
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+  if (!AC || !mime) throw { code: "unsupported_type" };
+  const ctx = new AC();
+  try {
+    const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const dest = ctx.createMediaStreamDestination(), src = ctx.createBufferSource();
+    src.buffer = buf; src.connect(dest);
+    const mr = new MediaRecorder(dest.stream, { mimeType: mime }), chunks = [];
+    mr.ondataavailable = e => e.data.size && chunks.push(e.data);
+    const stopped = new Promise(r => mr.onstop = r);
+    await ctx.resume(); mr.start(); src.start();
+    await new Promise(r => src.onended = r); await new Promise(r => setTimeout(r, 150));
+    mr.stop(); await stopped;
+    return { blob: new Blob(chunks, { type: mime.split(";")[0] }), type: mime.includes("webm") ? "video/webm" : "video/mp4" };
+  } catch (e) { throw e && e.code ? e : { code: "unsupported_type" }; }
+  finally { ctx.close().catch(() => {}); }
+}
+async function saveAudio(b, blob, p = S.play) {
+  const k = p.id + ":" + b.id;
+  if (!S.cloud) { await DB.put("audio", blob, k); S.rec.add(k); return; }
+  if (!C.assets) throw { code: "no_assets" };
+  const up = await toUploadable(blob);
+  const r = await C.assets.upload(up.blob, { type: up.type });
+  const old = p === S.play ? C.audio.get(k) : null;
+  await queue(() => C.db.doc("audio/" + p.id + "~" + b.id).set({ play: p.id, block: b.id, asset: r.id, at: Date.now(), by: (U.me && U.me.id) || null }));
+  C.urls.set(r.id, Promise.resolve(URL.createObjectURL(up.blob)));
+  if (p === S.play) { C.audio.set(k, r.id); S.rec.add(k); if (U.me && U.me.id) (C.by || (C.by = new Map())).set(k, U.me.id); }
+  if (old && old !== r.id) C.assets.delete(old).catch(() => {});
+}
+async function delAudio(b) {
+  const k = key(b); S.rec.delete(k);
+  if (!S.cloud) { await DB.del("audio", k); return; }
+  const id = C.audio.get(k); C.audio.delete(k);
+  await queue(async () => { await C.db.doc("audio/" + S.play.id + "~" + b.id).delete(); if (id && C.assets) await C.assets.delete(id).catch(() => {}); });
+}
+async function audioURL(b) {
+  const k = key(b);
+  if (S.cloud) {
+    const id = C.audio.get(k); if (!id) return null;
+    if (!C.urls.has(id)) C.urls.set(id, fetch("/_blob/" + id).then(r => { if (!r.ok) throw 0; return r.blob(); }).then(x => URL.createObjectURL(x)).catch(() => { C.urls.delete(id); return "/_blob/" + id; }));
+    return C.urls.get(id);
+  }
+  const blob = await DB.get("audio", k); return blob ? URL.createObjectURL(blob) : null;
+}
+
+/* Copy plays and recordings kept on this device into the account. A local play whose lines match an account play at 80% or more is treated as the same play. */
+async function migrate() {
+  const items = S.local.slice(); let plays = 0, voices = 0;
+  const norm = b => b.who + "|" + b.text.replace(/\s+/g, " ").trim();
+  try {
+    for (const lp of items) {
+      S.msg = { t: `Envoi de « ${lp.title} »…` }; render();
+      for (const cp of S.plays) if (!cp.blocks) await loadParts(cp);
+      const lines = lp.blocks.filter(b => b.type === "line");
+      let target = null;
+      for (const cp of S.plays) {
+        const set = new Set(cp.blocks.filter(b => b.type === "line").map(norm));
+        if (lines.length && lines.filter(b => set.has(norm(b))).length / lines.length >= 0.8) { target = cp; break; }
+      }
+      let created = false;
+      if (!target) {
+        target = { id: uid(), title: lp.title, blocks: JSON.parse(JSON.stringify(lp.blocks)), created: Date.now(), updated: Date.now(), cloud: true, pending: true };
+        target.loadedAt = target.updated; target.settings = settingsFor(target.id, lp.settings);
+        S.plays.unshift(target); await queue(() => cloudWrite(target)); created = true;
+      }
+      LS.set("set:" + target.id, { ...settingsFor(target.id), ...(lp.settings || {}) }); target.settings = settingsFor(target.id);
+      const existing = new Set((await C.db.collection("audio").where("play", "==", target.id).get()).docs.map(d => d.data().block));
+      const used = new Set();
+      for (const k of [...S.localRec].filter(k => k.startsWith(lp.id + ":"))) {
+        const lb = lp.blocks.find(b => b.id === k.slice(lp.id.length + 1)); if (!lb) continue;
+        const tb = created ? target.blocks.find(b => b.id === lb.id) : target.blocks.find(b => b.type === "line" && !used.has(b.id) && norm(b) === norm(lb));
+        if (!tb || existing.has(tb.id)) continue; used.add(tb.id);
+        const blob = await DB.get("audio", k); if (!blob) continue;
+        S.msg = { t: `Envoi des voix de « ${lp.title} » (${voices + 1})…` }; render();
+        await saveAudio(tb, blob, target); voices++;
+      }
+      LS.set("migrated:" + lp.id, true); plays++;
+      S.local = S.local.filter(x => x !== lp);
+    }
+    S.msg = { t: `C'est fait : ${plays} pièce${plays > 1 ? "s" : ""} et ${voices} voix sont maintenant sur ton compte.` };
+  } catch (e) { S.msg = { err: true, t: "L'envoi s'est arrêté : " + errText(e) + " Relance-le pour continuer, ce qui est déjà envoyé ne sera pas dupliqué." }; }
+  watchAudio(S.play); render();
+}
+
+let softPending = false;
+function softRender() {
+  const a = document.activeElement;
+  if (S.edit >= 0 || S.paste || S.renameChar || (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type !== "file")) { softPending = true; return; }
+  render();
+}
+
+/* ---------- views ---------- */
+function render() {
+  document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-current", b.dataset.tab === S.tab));
+  $("#hdrPlay").textContent = S.play ? S.play.title : "";
+  setStatus(); softPending = false;
+  const v = $("#view");
+  if (S.booting || (S.cloud && !S.cloudReady)) { v.innerHTML = `<div class="card"><p class="note">Chargement de tes pièces…</p></div>`; renderSheet(); return; }
+  if (S.play && !S.play.blocks) { v.innerHTML = `<div class="card"><p class="note">Chargement de « ${esc(S.play.title)} »…</p></div>`; renderSheet(); return; }
+  v.innerHTML = S.tab === "piece" ? viewPiece() : S.tab === "voix" ? viewVoix() : viewRep();
+  renderSheet();
+}
+
+function troupeCard() {
+  if (!S.cloud) return "";
+  const by = C.by ? [...C.by.values()] : [];
+  const counts = {}; by.forEach(i => counts[i] = (counts[i] || 0) + 1);
+  const ids = Object.keys(counts);
+  const people = ids.map(i => { const p = U.names[i] || {}; return `<div class="person"><img alt="" src="${esc(p.avatarUrl || "")}"><span>${esc(i === U.me?.id ? (p.name || "Toi") + " (toi)" : p.name || "Un comédien")}</span><small>${counts[i]} voix</small></div>`; }).join("");
+  const howto = U.owner ? `<p class="note" style="margin:0">Pour inviter un comédien : ouvre le menu <b>Partager</b> de l'appli, ajoute son adresse e-mail et donne-lui le rôle <b>Éditeur</b>. Il se connecte avec son propre compte Claude (gratuit), choisit son personnage et enregistre ses répliques. Ses réglages de répétition restent les siens.</p>` : "";
+  return `<div class="card"><span class="label">Troupe</span>
+    ${people ? `<div class="people">${people}</div>` : `<p class="note" style="margin:0">Personne n'a encore enregistré de voix sur cette pièce.</p>`}
+    ${howto}</div>`;
+}
+function roNote() {
+  if (!S.cloud || U.canWrite) return "";
+  return `<div class="msg">Tu peux répéter et écouter les voix, mais pas modifier la pièce ni enregistrer. Demande à la personne qui a partagé l'appli de te donner le rôle Éditeur.</div>`;
+}
+function migrateCard() {
+  if (!S.cloud || !S.local.length) return "";
+  const nv = [...S.localRec].filter(k => S.local.some(p => k.startsWith(p.id + ":"))).length;
+  return `<div class="card"><span class="label">Sur ce téléphone uniquement</span>
+    <p style="margin:0">${S.local.length} pièce${S.local.length > 1 ? "s" : ""} et ${nv} voix enregistrée${nv > 1 ? "s" : ""} avant la synchronisation sont seulement dans ce navigateur : ${S.local.map(p => "« " + esc(p.title) + " »").join(", ")}.</p>
+    <div class="row"><button class="btn primary" data-act="migrate">Les envoyer sur mon compte</button></div>
+    <span class="note">Si la même pièce existe déjà sur ton compte, seules les voix sont ajoutées.</span></div>`;
+}
+function importCard(p) {
+  if (S.cloud && !U.canWrite) return `<div class="card">
+    ${S.plays.length ? `<div class="field"><span class="label">Pièce</span><select id="playSel">${S.plays.map(x => `<option value="${x.id}" ${p && x.id === p.id ? "selected" : ""}>${esc(x.title)}</option>`).join("")}</select></div>` : `<p style="margin:0">Aucune pièce n'a encore été ajoutée.</p>`}
+    ${roNote()}</div>`;
+  return `<div class="card">
+    ${S.plays.length ? `<div class="row"><div class="field"><span class="label">Pièce</span>
+      <select id="playSel">${S.plays.map(x => `<option value="${x.id}" ${p && x.id === p.id ? "selected" : ""}>${esc(x.title)}</option>`).join("")}</select></div></div>` : `<p style="margin:0">Aucune pièce sur ton compte pour l'instant. Importe ton texte pour commencer.</p>`}
+    <div class="row">
+      <label class="btn primary filebtn" for="pdfInput">Importer un PDF<input type="file" id="pdfInput" accept=".pdf,application/pdf,.txt,text/plain,.json,application/json"></label>
+      <button class="btn" data-act="paste">Coller un texte</button>
+      ${!S.cloud && p ? `<button class="btn" data-act="export">Sauvegarder pièce + voix</button>` : ""}
+      ${!S.plays.length ? `<button class="btn ghost" data-act="sample">Essayer avec une scène de Molière</button>` : ""}
+    </div>
+    <div class="field"><span class="note">Si le bouton ne réagit pas, utilise ce sélecteur :</span><input type="file" id="pdfInput2" class="native-file" accept=".pdf,application/pdf,.txt,text/plain,.json,application/json"></div>
+    ${S.paste ? `<textarea id="pasteTxt" placeholder="Colle ici le texte de la pièce. Les noms de personnages en MAJUSCULES en début de ligne (HAMLET. ou HAMLET :) et les didascalies entre parenthèses sont reconnus."></textarea>
+      <div class="row"><button class="btn primary" data-act="parsePaste">Analyser le texte</button><button class="btn ghost" data-act="paste">Annuler</button></div>` : ""}
+    ${S.msg ? `<div class="msg ${S.msg.err ? "err" : ""}">${esc(S.msg.t)}</div>` : ""}
+    <span class="note">${S.cloud ? "Tes pièces et tes voix sont enregistrées sur ton compte Claude : tu les retrouves sur tous tes appareils." : "Tes pièces et tes voix sont enregistrées sur cet appareil. « Sauvegarder pièce + voix » crée un fichier à garder, à envoyer à ta troupe ou à ouvrir sur un autre appareil avec « Importer »."}</span>
+  </div>`;
+}
+function viewPiece() {
+  const p = S.play;
+  if (!p) return importCard(null) + migrateCard();
+  const b = p.blocks;
+  const nl = b.filter(x => x.type === "line").length, nd = b.filter(x => x.type === "didasc").length;
+  const cs = chars();
+  const counts = Object.fromEntries(cs.map(c => [c, b.filter(x => x.type === "line" && x.who === c).length]));
+  let h = importCard(p) + migrateCard() + troupeCard() + `
+<div class="card">
+    <div class="row"><div class="field"><span class="label">Titre</span><input type="text" id="titleIn" value="${esc(p.title)}"></div></div>
+    <div class="stats"><div><b>${cs.length}</b><span>personnages</span></div><div><b>${nl}</b><span>répliques</span></div><div><b>${nd}</b><span>didascalies</span></div></div>
+    <div class="chips">${cs.map(c => `<button class="chip" data-act="charRename" data-c="${esc(c)}"><i style="${cdot(c)}"></i>${esc(c)} <small>${counts[c]}</small></button>`).join("")}</div>
+    ${S.renameChar ? `<div class="editor"><span class="label">Renommer ${esc(S.renameChar)}</span>
+      <input type="text" id="renIn" value="${esc(S.renameChar)}" list="charList">
+      <span class="note">Donne le nom d'un autre personnage pour fusionner les deux.</span>
+      <div class="row"><button class="btn primary" data-act="renSave">Valider</button><button class="btn ghost" data-act="renCancel">Annuler</button></div></div>` : ""}
+    <span class="note">Touche une ligne du texte pour corriger le personnage, le type ou le texte.</span>
+  </div>
+  <datalist id="charList">${cs.map(c => `<option value="${esc(c)}">`).join("")}</datalist>
+  <div class="script">`;
+  b.forEach((x, i) => { h += blockHTML(x, i); if (i === S.edit) h += editorHTML(x); });
+  h += `</div>
+  <div class="row" ${S.cloud && !U.owner ? "hidden" : ""}><button class="btn danger" data-act="delPlay">${S.confirmDel ? "Confirmer la suppression" : "Supprimer cette pièce"}</button>${S.confirmDel ? `<button class="btn ghost" data-act="delCancel">Annuler</button>` : ""}</div>`;
+  return h;
+}
+function blockHTML(b, i) {
+  const sel = i === S.edit ? " sel" : "";
+  if (b.type === "heading") return `<div class="b-head${sel}" data-act="edit" data-i="${i}">${esc(b.text)}</div>`;
+  if (b.type === "didasc") return `<div class="b-did${sel}" data-act="edit" data-i="${i}">${esc(b.text)}</div>`;
+  return `<div class="b-line${sel}" data-act="edit" data-i="${i}"><span class="who" style="${cstyle(b.who)}">${esc(b.who)}.</span>${esc(b.text)}${S.rec.has(key(b)) ? '<span class="dot" title="Voix enregistrée"></span>' : ""}</div>`;
+}
+function editorHTML(b) {
+  return `<div class="editor">
+    <div class="row">
+      <div class="field"><span class="label">Type</span><select id="edType">
+        <option value="line" ${b.type === "line" ? "selected" : ""}>Réplique</option>
+        <option value="didasc" ${b.type === "didasc" ? "selected" : ""}>Didascalie</option>
+        <option value="heading" ${b.type === "heading" ? "selected" : ""}>Acte / scène</option></select></div>
+      <div class="field"><span class="label">Personnage</span><input type="text" id="edWho" list="charList" value="${esc(b.who)}"></div>
+    </div>
+    <textarea id="edText">${esc(b.text)}</textarea>
+    <div class="row">
+      <button class="btn primary" data-act="edSave">Enregistrer</button>
+      <button class="btn" data-act="edSplit" title="Coupe au curseur">Couper au curseur</button>
+      <button class="btn" data-act="edMerge">Joindre au précédent</button>
+      <button class="btn danger" data-act="edDel">Supprimer</button>
+      <button class="btn ghost" data-act="edCancel">Fermer</button>
+    </div></div>`;
+}
+
+function viewVoix() {
+  const cs = chars();
+  if (!cs.length) return migrateCard() + `<div class="card"><p>Aucun personnage détecté. Importe une pièce dans l'onglet Pièce.</p></div>`;
+  if (!cs.includes(S.voixWho)) S.voixWho = cs.find(c => c !== S.play.settings.me) || cs[0];
+  const items = S.play.blocks.map((b, i) => ({ b, i })).filter(o => o.b.type === "line" && o.b.who === S.voixWho);
+  const done = items.filter(o => S.rec.has(key(o.b))).length;
+  return `<div class="card">
+    <div class="field"><span class="label">Voix du personnage</span>
+      <select id="voixSel">${cs.map(c => {
+        const all = S.play.blocks.filter(b => b.type === "line" && b.who === c);
+        const d = all.filter(b => S.rec.has(key(b))).length;
+        return `<option value="${esc(c)}" ${c === S.voixWho ? "selected" : ""}>${esc(c)} — ${d}/${all.length}${c === S.play.settings.me ? " (ton rôle)" : ""}</option>`;
+      }).join("")}</select></div>
+    <div class="note">${done} réplique${done > 1 ? "s" : ""} enregistrée${done > 1 ? "s" : ""} sur ${items.length}. Sans enregistrement, la voix de synthèse lit la réplique pendant la répétition.</div>
+    ${S.cloud && (!U.canWrite || !U.canUpload) ? `<div class="msg">Tu peux écouter les voix, mais pas en enregistrer. Demande le rôle Éditeur à la personne qui a partagé l'appli.</div>` : ""}
+    <div class="row" ${S.cloud && (!U.canWrite || !U.canUpload) ? "hidden" : ""}><button class="btn primary" data-act="recFirst">${done < items.length ? "Enregistrer la suivante" : "Réécouter depuis le début"}</button></div>
+  </div>
+  <div class="list">${items.map((o, n) => `<button class="item" data-act="openRec" data-i="${o.i}">
+      <span class="n">${n + 1}</span><span class="t">${esc(o.b.text)}</span>
+      ${S.rec.has(key(o.b)) ? `<span class="st ok">${C.by && C.by.get(key(o.b)) ? esc("Par " + nameOf(C.by.get(key(o.b)))) : "Enregistrée"}</span>` : `<span class="st tts">Synthèse</span>`}
+    </button>`).join("")}</div>`;
+}
+
+function renderSheet() {
+  const sh = $("#sheet");
+  if (S.sheetIdx < 0 || S.tab !== "voix") { sh.hidden = true; sh.innerHTML = ""; return; }
+  const b = S.play.blocks[S.sheetIdx]; const has = S.rec.has(key(b));
+  const recOn = !!REC.mr;
+  sh.hidden = false;
+  sh.innerHTML = `<div class="in">
+    <div class="row" style="justify-content:space-between"><span class="label" style="${cstyle(b.who)}">${esc(b.who)}</span><button class="btn ghost" data-act="closeSheet">Fermer</button></div>
+    <div class="txt">${esc(b.text)}</div>
+    ${S.sheetMsg ? `<div class="msg ${S.sheetMsg.err ? "err" : ""}">${esc(S.sheetMsg.t)}</div>` : ""}
+    ${S.cloud && (!U.canWrite || !U.canUpload) ? "" : `${S.micBlocked ? `<div class="msg">Le micro direct n'est pas disponible ici. Enregistre avec le dictaphone de ton téléphone, puis choisis le fichier ci-dessous.</div>` : `<div class="row" style="gap:16px"><button class="recbtn ${recOn ? "on" : ""}" data-act="recToggle" aria-label="${recOn ? "Arrêter" : "Enregistrer"}"><span></span></button>
+        <div><div class="timer" id="recTimer">${recOn ? "0:00" : has ? "Enregistrée" : "Prêt"}</div><div class="note">${recOn ? "Touche pour arrêter" : "Touche le bouton rouge pour enregistrer"}</div></div></div>
+`}
+      <div class="row">
+        <label class="btn ${S.micBlocked ? "primary " : ""}filebtn" for="audioFile">Choisir un enregistrement du dictaphone<input type="file" id="audioFile" accept="audio/*,.m4a,.mp3,.aac,.wav,.ogg,.opus,.oga,.3gp,.3ga,.amr,.webm,.mp4,.flac"></label>
+        <label class="btn filebtn" for="audioCap">Ouvrir le dictaphone<input type="file" id="audioCap" accept="audio/*" capture></label>
+      </div>
+      <div class="field"><span class="note">Si ces boutons ne réagissent pas, utilise ce sélecteur :</span><input type="file" id="audioFile2" class="native-file" accept="audio/*,.m4a,.mp3,.aac,.wav,.ogg,.opus,.oga,.3gp,.3ga,.amr,.webm,.mp4,.flac"></div>`}
+    <div class="row">
+      <button class="btn" data-act="playRec" ${has ? "" : "disabled"}>Écouter</button>
+      ${S.cloud && (!U.canWrite || !U.canUpload) ? "" : `<button class="btn danger" data-act="delRec" ${has ? "" : "disabled"}>Effacer</button>`}
+      ${has && C.by && C.by.get(key(b)) ? `<span class="note">${esc("Voix de " + nameOf(C.by.get(key(b))))}</span>` : ""}
+      <button class="btn primary" data-act="nextRec" style="margin-left:auto">Suivante →</button>
+    </div></div>`;
+}
+
+function viewRep() {
+  const cs = chars();
+  if (!cs.length) return `<div class="card"><p>Importe d'abord une pièce dans l'onglet Pièce.</p></div>`;
+  const s = S.play.settings;
+  if (!cs.includes(s.me)) s.me = cs[0];
+  const heads = S.play.blocks.map((b, i) => ({ b, i })).filter(o => o.b.type === "heading");
+  const mine = S.play.blocks.filter(b => b.type === "line" && b.who === s.me);
+  const seg = (name, val, label) => `<button data-act="set" data-k="${name}" data-v="${val}" aria-pressed="${s[name] === val}">${label}</button>`;
+  return `<div class="card">
+    <div class="field"><span class="label">Je joue</span>
+      <select id="meSel">${cs.map(c => `<option value="${esc(c)}" ${c === s.me ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></div>
+    <div class="note">${mine.length} répliques, environ ${Math.round(mine.reduce((a, b) => a + words(b.text), 0) * s.spw / 60 * 10) / 10} min de texte.</div>
+  </div>
+  <div class="card">
+    <span class="label">Entendre ma réplique</span>
+    <div class="seg">${seg("hear", "avant", "Avant")}${seg("hear", "apres", "Après")}${seg("hear", "jamais", "Jamais")}</div>
+    <div class="note">${s.hear === "avant" ? "Ta réplique est jouée, puis tu la répètes." : s.hear === "apres" ? "Tu dis ta réplique, puis tu entends la bonne version pour vérifier." : "Tu dis ta réplique seul, sans aide sonore."}</div>
+    <label class="toggle">Afficher mon texte pendant mon tour<input type="checkbox" id="showMine" ${s.showMine ? "checked" : ""}></label>
+  </div>
+  <div class="card">
+    <span class="label">Temps pour ma réplique</span>
+    <input type="range" id="spw" min="0.3" max="1" step="0.05" value="${s.spw}">
+    <div class="row" style="justify-content:space-between"><span class="note">Rapide</span><span class="note" style="font-variant-numeric:tabular-nums">${s.spw.toFixed(2)} s par mot · 10 mots ≈ ${Math.round(10 * s.spw + 0.8)} s</span><span class="note">Lent</span></div>
+    <span class="note">Pendant ton tour, « J'ai fini » passe à la suite sans attendre.</span>
+  </div>
+  <div class="card">
+    <label class="toggle">Voix de synthèse pour les répliques non enregistrées<input type="checkbox" id="tts" ${s.tts ? "checked" : ""}></label>
+    <label class="toggle">Lire les didascalies à voix haute<input type="checkbox" id="readDid" ${s.readDid ? "checked" : ""}></label>
+    <div class="field"><span class="label">Commencer à</span>
+      <select id="startSel"><option value="0">Début de la pièce</option>${heads.map(o => `<option value="${o.i}" ${s.start === o.i ? "selected" : ""}>${esc(o.b.text)}</option>`).join("")}</select></div>
+  </div>
+  <button class="btn primary" data-act="go" style="justify-content:center;padding:14px;font-size:16px">Lever de rideau</button>`;
+}
+
+/* ---------- recording ---------- */
+const REC = { mr: null, chunks: [], stream: null, t0: 0, tick: null };
+async function recStart() {
+  try {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) throw new Error("unsupported");
+    REC.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    REC.chunks = []; REC.mr = new MediaRecorder(REC.stream);
+    REC.mr.ondataavailable = e => e.data.size && REC.chunks.push(e.data);
+    REC.mr.onstop = async () => {
+      const blob = new Blob(REC.chunks, { type: REC.mr.mimeType || "audio/webm" });
+      REC.stream.getTracks().forEach(t => t.stop()); REC.mr = null; clearInterval(REC.tick);
+      await recordSave(blob);
+    };
+    REC.mr.start(); REC.t0 = Date.now();
+    renderSheet();
+    REC.tick = setInterval(() => { const s = Math.floor((Date.now() - REC.t0) / 1000); const el = $("#recTimer"); if (el) el.textContent = Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }, 250);
+  } catch (e) { S.micBlocked = true; renderSheet(); }
+}
+async function recordSave(blob) {
+  const b = S.play.blocks[S.sheetIdx]; if (!b) return;
+  const conv = S.cloud && !/webm|mp4|m4a/i.test((blob.type || "") + (blob.name || ""));
+  S.sheetMsg = { t: conv ? "Conversion du fichier (cela prend la durée de l'enregistrement), puis envoi sur ton compte…" : S.cloud ? "Envoi de l'enregistrement sur ton compte…" : "Enregistrement…" }; renderSheet();
+  try { await saveAudio(b, blob); S.sheetMsg = null; } catch (e) { S.sheetMsg = { err: true, t: errText(e) }; }
+  render();
+}
+function nextLineIdx(from, who) {
+  const bl = S.play.blocks;
+  for (let i = from + 1; i < bl.length; i++) if (bl[i].type === "line" && bl[i].who === who) return i;
+  return -1;
+}
+
+/* ---------- audio playback / speech ---------- */
+const player = new Audio();
+const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+function newTok() { return { off: false, cancels: [], cancel() { this.off = true; this.cancels.splice(0).forEach(f => f()); } }; }
+function sleep(ms, tok) { return new Promise(r => { const t = setTimeout(r, ms); tok.cancels.push(() => { clearTimeout(t); r(); }); }); }
+async function playURL(url, tok, revoke) {
+  await new Promise(r => {
+    player.onended = r; player.onerror = r; player.src = url;
+    tok.cancels.push(() => { player.pause(); r(); });
+    player.play().catch(r);
+  });
+  if (revoke) URL.revokeObjectURL(url);
+}
+let frVoices = [];
+function loadVoices() { try { frVoices = speechSynthesis.getVoices().filter(v => /^fr/i.test(v.lang)); } catch (e) {} }
+if ("speechSynthesis" in window) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+async function speak(text, who, tok, rate = 1) {
+  const est = words(text) * 450 + 2500;
+  if (!("speechSynthesis" in window)) return sleep(est, tok);
+  const u = new SpeechSynthesisUtterance(text); u.lang = "fr-FR"; u.rate = rate;
+  const i = chars().indexOf(who);
+  if (frVoices.length) u.voice = frVoices[(i < 0 ? 0 : i) % frVoices.length];
+  u.pitch = i < 0 ? 1 : [1, 0.8, 1.2, 0.9, 1.1][i % 5];
+  await new Promise(r => {
+    const t = setTimeout(r, est * 1.6); const done = () => { clearTimeout(t); r(); };
+    u.onend = done; u.onerror = done;
+    tok.cancels.push(() => { speechSynthesis.cancel(); done(); });
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  });
+}
+async function voice(b, tok) {
+  const url = await audioURL(b);
+  if (S.cloud) { const bl = S.play.blocks; let n = 0; for (let j = bl.indexOf(b) + 1; j < bl.length && n < 4; j++) if (bl[j].type === "line") { n++; audioURL(bl[j]); } }
+  if (tok.off) return;
+  if (url) return playURL(url, tok, !S.cloud);
+  if (S.play.settings.tts) return speak(b.text, b.who, tok);
+  return sleep(Math.max(1500, words(b.text) * 380), tok);
+}
+
+/* ---------- rehearsal engine ---------- */
+const RUN = { idx: 0, tok: null, paused: false, phase: "", lock: null, skip: null };
+const ICON = {
+  prev: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg>',
+  next: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>',
+  play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>'
+};
+function sceneOf(i) { for (let j = i; j >= 0; j--) if (S.play.blocks[j].type === "heading") return S.play.blocks[j].text; return S.play.title; }
+function didsBefore(i) { const out = []; for (let j = i - 1; j >= 0 && S.play.blocks[j].type === "didasc"; j--) out.unshift(S.play.blocks[j].text); return out.slice(-2); }
+function prevSpoken(i) { for (let j = i - 1; j >= 0; j--) if (S.play.blocks[j].type === "line") return S.play.blocks[j]; return null; }
+function drawStage(extra = {}) {
+  const st = $("#stage"), bl = S.play.blocks, i = Math.min(RUN.idx, bl.length - 1), b = bl[i], s = S.play.settings;
+  if (RUN.idx >= bl.length) {
+    st.innerHTML = `<div class="top"><span>Fin</span><button class="cbtn" data-act="stop" aria-label="Fermer">${ICON.stop}</button></div>
+      <div class="mid"><div class="cur head">Rideau</div><div class="note" style="text-align:center;color:var(--stage-muted)">Bravo. Tu peux recommencer ou changer de scène dans l'onglet Répéter.</div></div><div class="ctrl"></div>`;
+    return;
+  }
+  const mine = b.type === "line" && (b.who === s.me || GROUP.test(b.who));
+  const p = prevSpoken(i);
+  let cur;
+  if (b.type === "heading") cur = `<div class="cur head">${esc(b.text)}</div>`;
+  else if (b.type === "didasc") cur = `<div class="cur did">${esc(b.text)}</div>`;
+  else {
+    const hide = mine && !s.showMine && RUN.phase === "turn";
+    cur = `<div class="cur"><span class="who" style="${cstyle(b.who)}">${esc(b.who)}</span>${hide ? '<span class="hidden-text">· · · · ·</span>' : esc(b.text)}</div>`;
+  }
+  let cue = "";
+  if (mine && RUN.phase === "turn") cue = `<div class="cue">À toi</div><div class="bar"><i id="turnBar"></i></div><button class="done-btn" data-act="doneTurn">J'ai fini</button>`;
+  else if (mine && RUN.phase === "model") cue = `<div class="cue" style="color:var(--stage-muted)">${s.hear === "avant" ? "Écoute" : "Correction"}</div>`;
+  st.innerHTML = `<div class="top"><span class="scene">${esc(sceneOf(i))}</span><span style="font-variant-numeric:tabular-nums">${i + 1}/${bl.length}</span></div>
+    <div class="mid">${p && p !== b ? `<div class="prev"><span class="who" style="${cstyle(p.who)}">${esc(p.who)}</span>${esc(p.text)}</div>` : ""}${b.type === "line" ? didsBefore(i).map(t => `<div class="stage-did">${esc(t)}</div>`).join("") : ""}${cue && mine ? cue : ""}${cur}</div>
+    <div class="ctrl">
+      <button class="cbtn" data-act="rPrev" aria-label="Précédent">${ICON.prev}</button>
+      <button class="cbtn big" data-act="rToggle" aria-label="${RUN.paused ? "Reprendre" : "Pause"}">${RUN.paused ? ICON.play : ICON.pause}</button>
+      <button class="cbtn" data-act="rNext" aria-label="Suivant">${ICON.next}</button>
+      <button class="cbtn" data-act="stop" aria-label="Arrêter">${ICON.stop}</button>
+    </div>`;
+}
+async function myTurn(b, tok) {
+  const dur = Math.max(2, words(b.text) * S.play.settings.spw) + 0.8;
+  RUN.phase = "turn"; drawStage();
+  const bar = $("#turnBar");
+  if (bar) { bar.style.transition = "none"; bar.style.width = "0"; void bar.offsetWidth; bar.style.transition = `width ${dur}s linear`; bar.style.width = "100%"; }
+  await new Promise(r => { const t = setTimeout(r, dur * 1000); const f = () => { clearTimeout(t); r(); }; RUN.skip = f; tok.cancels.push(f); });
+  RUN.skip = null;
+}
+async function step(i, tok) {
+  const b = S.play.blocks[i], s = S.play.settings;
+  RUN.phase = ""; drawStage();
+  if (b.type === "heading") return sleep(1400, tok);
+  if (b.type === "didasc") return s.readDid && s.tts ? speak(b.text, "", tok, 1.05) : undefined;
+  if (b.who !== s.me && !GROUP.test(b.who)) return voice(b, tok);
+  if (s.hear === "avant") { RUN.phase = "model"; drawStage(); await voice(b, tok); if (tok.off) return; }
+  await myTurn(b, tok); if (tok.off) return;
+  if (s.hear === "apres") { RUN.phase = "model"; drawStage(); await voice(b, tok); }
+}
+async function runFrom(i) {
+  const tok = newTok(); RUN.tok = tok; RUN.idx = i; RUN.paused = false;
+  while (RUN.idx < S.play.blocks.length && !tok.off) {
+    await step(RUN.idx, tok); if (tok.off) return;
+    RUN.idx++;
+  }
+  if (!tok.off) { RUN.phase = ""; drawStage(); releaseLock(); }
+}
+function halt() { if (RUN.tok) RUN.tok.cancel(); try { speechSynthesis.cancel(); } catch (e) {} player.pause(); }
+async function lock() { try { RUN.lock = await navigator.wakeLock?.request("screen"); } catch (e) {} }
+function releaseLock() { try { RUN.lock?.release(); } catch (e) {} RUN.lock = null; }
+function startRehearsal() {
+  player.src = SILENT; player.play().catch(() => {});
+  try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; speechSynthesis.speak(u); } catch (e) {}
+  $("#stage").hidden = false; lock();
+  runFrom(S.play.settings.start || 0);
+}
+function jump(d) {
+  halt(); const bl = S.play.blocks; let i = RUN.idx;
+  do { i += d; } while (i > 0 && i < bl.length - 1 && bl[i].type === "didasc");
+  RUN.idx = Math.max(0, Math.min(bl.length - 1, i)); RUN.phase = "";
+  if (RUN.paused) drawStage(); else runFrom(RUN.idx);
+}
+
+/* ---------- events ---------- */
+document.addEventListener("click", async e => {
+  const nb = e.target.closest("nav button");
+  if (nb) { if (REC.mr) REC.mr.stop(); S.tab = nb.dataset.tab; S.sheetIdx = -1; render(); $("#main").scrollTop = 0; return; }
+  const el = e.target.closest("[data-act]"); if (!el) return;
+  const a = el.dataset.act, p = S.play;
+  switch (a) {
+    case "sample": await newPlay("Le Médecin malgré lui (exemple)", parseText(SAMPLE)); render(); break;
+    case "migrate": el.disabled = true; await migrate(); break;
+    case "export": await exportPlay(); break;
+    case "paste": S.paste = !S.paste; S.msg = null; render(); break;
+    case "parsePaste": {
+      const t = $("#pasteTxt").value.trim(); if (!t) return;
+      const blocks = parseText(t);
+      await newPlay(t.split("\n")[0].slice(0, 60) || "Pièce sans titre", blocks);
+      S.paste = false; S.msg = { t: `Texte analysé : ${chars().length} personnages, ${blocks.filter(b => b.type === "line").length} répliques. Vérifie les lignes et corrige-les si besoin.` };
+      render(); break;
+    }
+    case "edit": { if (S.cloud && !U.canWrite) return; const i = +el.dataset.i; S.edit = S.edit === i ? -1 : i; render(); break; }
+    case "edCancel": S.edit = -1; render(); break;
+    case "edSave": {
+      const b = p.blocks[S.edit]; b.type = $("#edType").value; b.who = $("#edWho").value.trim().toUpperCase(); b.text = $("#edText").value.trim();
+      if (b.type === "line" && !b.who) { b.type = "didasc"; }
+      S.edit = -1; savePlay(); render(); break;
+    }
+    case "edSplit": {
+      const ta = $("#edText"), pos = ta.selectionStart, b = p.blocks[S.edit];
+      const a1 = ta.value.slice(0, pos).trim(), a2 = ta.value.slice(pos).trim(); if (!a1 || !a2) return;
+      b.text = a1; p.blocks.splice(S.edit + 1, 0, { id: uid(), type: b.type, who: b.who, text: a2 }); savePlay(); render(); break;
+    }
+    case "edMerge": {
+      if (S.edit < 1) return; const b = p.blocks[S.edit], prev = p.blocks[S.edit - 1];
+      prev.text = (prev.text + " " + $("#edText").value.trim()).trim(); if (S.rec.has(key(b))) delAudio(b);
+      p.blocks.splice(S.edit, 1); S.edit = S.edit - 1; savePlay(); render(); break;
+    }
+    case "edDel": { const b = p.blocks[S.edit]; if (S.rec.has(key(b))) delAudio(b); p.blocks.splice(S.edit, 1); S.edit = -1; savePlay(); render(); break; }
+    case "charRename": if (S.cloud && !U.canWrite) return; S.renameChar = el.dataset.c; render(); break;
+    case "renCancel": S.renameChar = ""; render(); break;
+    case "renSave": {
+      const nn = $("#renIn").value.trim().toUpperCase(); if (!nn) return;
+      p.blocks.forEach(b => { if (b.who === S.renameChar) b.who = nn; });
+      if (p.settings.me === S.renameChar) { p.settings.me = nn; saveSettings(); }
+      S.renameChar = ""; savePlay(); render(); break;
+    }
+    case "delPlay": {
+      if (!S.confirmDel) { S.confirmDel = true; render(); return; }
+      S.confirmDel = false; S.msg = null;
+      await deletePlay(p); break;
+    }
+    case "delCancel": S.confirmDel = false; render(); break;
+    case "openRec": S.sheetIdx = +el.dataset.i; S.sheetMsg = null; renderSheet(); break;
+    case "recFirst": {
+      const items = p.blocks.map((b, i) => ({ b, i })).filter(o => o.b.type === "line" && o.b.who === S.voixWho);
+      const f = items.find(o => !S.rec.has(key(o.b))) || items[0]; if (f) { S.sheetIdx = f.i; renderSheet(); } break;
+    }
+    case "closeSheet": if (REC.mr) REC.mr.stop(); S.sheetIdx = -1; renderSheet(); break;
+    case "recToggle": if (REC.mr) REC.mr.stop(); else recStart(); break;
+    case "playRec": { player.src = SILENT; player.play().catch(() => {}); const url = await audioURL(p.blocks[S.sheetIdx]); if (url) { halt(); playURL(url, newTok(), !S.cloud); } break; }
+    case "delRec": { const b = p.blocks[S.sheetIdx]; S.sheetMsg = null; await delAudio(b); render(); break; }
+    case "nextRec": {
+      if (REC.mr) REC.mr.stop();
+      const n = nextLineIdx(S.sheetIdx, p.blocks[S.sheetIdx].who); S.sheetIdx = n; S.sheetMsg = null; renderSheet();
+      if (n >= 0) document.querySelector(`.item[data-i="${n}"]`)?.scrollIntoView({ block: "nearest" });
+      break;
+    }
+    case "set": p.settings[el.dataset.k] = el.dataset.v; saveSettings(); render(); break;
+    case "go": startRehearsal(); break;
+    case "rToggle":
+      if (RUN.paused) runFrom(RUN.idx); else { halt(); RUN.paused = true; RUN.phase = ""; drawStage(); }
+      break;
+    case "rNext": jump(1); break;
+    case "rPrev": jump(-1); break;
+    case "doneTurn": RUN.skip?.(); break;
+    case "stop": halt(); RUN.paused = false; $("#stage").hidden = true; releaseLock(); break;
+  }
+});
+document.addEventListener("change", async e => {
+  const t = e.target, p = S.play;
+  if (t.id === "playSel") { S.msg = null; await selectPlay(S.plays.find(x => x.id === t.value)); }
+  else if (t.id === "titleIn") { p.title = t.value.trim() || "Sans titre"; savePlay(); render(); }
+  else if (t.id === "voixSel") { S.voixWho = t.value; S.sheetIdx = -1; render(); }
+  else if (t.id === "meSel") { p.settings.me = t.value; saveSettings(); render(); }
+  else if (t.id === "showMine" || t.id === "tts" || t.id === "readDid") { p.settings[t.id] = t.checked; saveSettings(); }
+  else if (t.id === "startSel") { p.settings.start = +t.value; saveSettings(); }
+  else if (t.id === "spw") { p.settings.spw = +t.value; saveSettings(); render(); }
+  else if (/^audio(File|File2|Cap)$/.test(t.id) && t.files[0]) { const f = t.files[0]; t.value = ""; await recordSave(f); }
+  else if ((t.id === "pdfInput" || t.id === "pdfInput2") && t.files[0]) {
+    const f = t.files[0]; t.value = "";
+    S.msg = { t: "Lecture de « " + f.name + " »…" }; S.paste = false; render();
+    try {
+      let text, scanned = false;
+      if (/\.(json|echorae|souffleur)$/i.test(f.name) || f.type === "application/json") { await importJSON(f); render(); return; }
+      if (/\.txt$/i.test(f.name) || f.type === "text/plain") text = await f.text();
+      else { const r = await pdfToText(f); text = r.text; scanned = r.chars / r.pages < 40; }
+      if (scanned) { S.msg = { err: true, t: "Ce PDF ne contient presque pas de texte : c'est sans doute une page scannée (une image). Ouvre-le dans une appli qui fait la reconnaissance de texte (Google Lens, Notes sur iPhone…), copie le texte, puis utilise « Coller un texte »." }; render(); return; }
+      const blocks = parseText(text);
+      await newPlay(f.name.replace(/\.(pdf|txt)$/i, ""), blocks);
+      const n = chars().length;
+      S.msg = n ? { t: `Pièce lue : ${n} personnages, ${blocks.filter(b => b.type === "line").length} répliques, ${blocks.filter(b => b.type === "didasc").length} didascalies. Parcours le texte et touche une ligne pour la corriger.` }
+               : { err: true, t: "Je n'ai pas trouvé de noms de personnages. Le texte est importé ; tu peux corriger les lignes à la main, ou vérifier que les noms sont en MAJUSCULES en début de réplique." };
+    } catch (err) { S.msg = { err: true, t: "Impossible de lire ce fichier : " + (err.message || err) }; }
+    render();
+  }
+});
+document.addEventListener("focusout", () => setTimeout(() => { if (softPending) softRender(); }, 0));
+document.addEventListener("input", e => { if (e.target.id === "spw") { S.play.settings.spw = +e.target.value; } });
+document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("#stage").hidden && !RUN.lock) lock(); });
+
+/* ---------- fichier .souffleur.json : pièce découpée + voix ---------- */
+const b64 = blob => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(blob); });
+async function exportPlay() {
+  const p = S.play; if (!p) return;
+  S.msg = { t: "Préparation du fichier…" }; render();
+  const voices = {};
+  for (const b of p.blocks) { const k = p.id + ":" + b.id; if (!S.rec.has(k)) continue; const blob = await DB.get("audio", k); if (blob) voices[b.id] = { type: blob.type || "audio/mp4", data: await b64(blob) }; }
+  const out = JSON.stringify({ format: "echorae", version: 1, title: p.title, blocks: p.blocks, voices });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([out], { type: "application/json" }));
+  a.download = p.title.replace(/[^\p{L}\d]+/gu, "_").replace(/^_|_$/g, "") + ".echorae.json";
+  document.body.appendChild(a); a.click(); a.remove();
+  S.msg = { t: `Fichier créé avec ${Object.keys(voices).length} voix. Retrouve-le dans tes téléchargements.` }; render();
+}
+async function importJSON(f) {
+  let d; try { d = JSON.parse(await f.text()); } catch (e) { throw new Error("ce fichier n'est pas un fichier Echorae."); }
+  if (!d || !/^(echorae|souffleur)$/.test(d.format) || !Array.isArray(d.blocks)) throw new Error("ce fichier n'est pas un fichier Echorae.");
+  const blocks = d.blocks.filter(b => b && b.text && /^(line|didasc|heading)$/.test(b.type)).map(b => ({ id: String(b.id || uid()), type: b.type, who: String(b.who || "").toUpperCase(), text: String(b.text) }));
+  /* même pièce déjà présente ? on y ajoute seulement les voix */
+  let p = S.plays.find(x => x.title === d.title && x.blocks && x.blocks.length === blocks.length && x.blocks.every((b, i) => b.id === blocks[i].id));
+  const isNew = !p;
+  if (isNew) p = await newPlay(d.title || f.name.replace(/\.((echorae|souffleur)\.)?json$/i, ""), blocks); else await selectPlay(p);
+  let n = 0;
+  for (const [id, v] of Object.entries(d.voices || {})) {
+    const b = p.blocks.find(x => x.id === id); if (!b || !v || !v.data) continue;
+    const bytes = Uint8Array.from(atob(v.data), c => c.charCodeAt(0));
+    await saveAudio(b, new Blob([bytes], { type: v.type || "audio/mp4" }), p); n++;
+  }
+  S.msg = { t: `${isNew ? "Pièce importée" : "Voix ajoutées à la pièce existante"} : ${chars().length} personnages, ${p.blocks.filter(b => b.type === "line").length} répliques, ${n} voix.` };
+}
+
+/* ---------- boot ---------- */
+async function startCloud() {
+  try {
+    if (!window.claude || !window.claude.use) return false;
+    const db = await window.claude.use("db"); if (!db) return false;
+    const assets = await window.claude.use("assets").catch(() => null);
+    C.db = db; C.assets = assets; if (!assets) U.canUpload = false;
+    await startUser();
+    halt(); $("#stage").hidden = true;
+    S.cloud = true; S.cloudReady = false; S.booting = false; S.plays = []; S.play = null; S.rec = new Set(); S.msg = null;
+    S.local = S.localPlays.filter(p => !LS.get("migrated:" + p.id) && (!/\(exemple\)/.test(p.title) || [...S.localRec].some(k => k.startsWith(p.id + ":"))));
+    render();
+    C.unsubPlays = db.collection("plays").onSnapshot(snap => { onPlays(snap); }, () => { S.msg = { err: true, t: "La connexion à ton compte s'est interrompue. Recharge la page." }; render(); });
+    return true;
+  } catch (e) { return false; }
+}
+async function enterLocal() {
+  S.booting = false; S.cloud = false;
+  S.plays = S.localPlays; S.rec = S.localRec;
+  if (!S.plays.length) {
+    await newPlay("Le Médecin malgré lui (exemple)", parseText(SAMPLE));
+    S.msg = { t: "Une scène d'exemple de Molière est chargée pour essayer. Importe ton PDF pour travailler ta pièce." };
+  } else { const last = LS.get("last"); S.play = S.plays.find(p => p.id === last) || S.plays[0]; }
+  render();
+}
+(async () => {
+  render();
+  await DB.open();
+  S.localPlays = ((await DB.all("plays")) || []).sort((a, b) => (b.created || 0) - (a.created || 0));
+  S.localPlays.forEach(p => p.settings = settingsFor(p.id, p.settings));
+  S.localRec = new Set(((await DB.keys("audio")) || []).map(String));
+  const cloud = startCloud();
+  const first = await Promise.race([cloud, new Promise(r => setTimeout(() => r("wait"), 2500))]);
+  if (first !== true && !S.cloud) await enterLocal();
+})();
+</script>
+
+</body></html>
