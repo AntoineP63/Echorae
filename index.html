@@ -36,6 +36,7 @@ header .sync{margin-left:auto;font-size:12px;color:var(--muted);white-space:nowr
 header .sync i{width:7px;height:7px;border-radius:50%;background:var(--muted)}
 header .sync.on i{background:#2E9D5B}
 header .sync.busy i{background:var(--lamp)}
+header .ver{font-size:10px;color:var(--muted);align-self:center}
 header .me{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap;max-width:40%;overflow:hidden}
 header .me img{width:22px;height:22px;border-radius:50%;flex:none}
 header .me span{overflow:hidden;text-overflow:ellipsis}
@@ -150,7 +151,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 </style>
 
 <div id="app">
-  <header><h1>Echorae</h1><span class="play" id="hdrPlay"></span><span class="sync" id="sync"></span><span class="me" id="meChip" hidden></span></header>
+  <header><h1>Echorae</h1><span class="ver">v23.10</span><span class="play" id="hdrPlay"></span><span class="sync" id="sync"></span><span class="me" id="meChip" hidden></span></header>
   <main id="main"><div class="wrap" id="view"></div></main>
   <nav>
     <button data-tab="piece" aria-current="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h7"/></svg>Pièce</button>
@@ -1080,6 +1081,10 @@ document.addEventListener("change", async e => {
     render();
   }
 });
+/* Some Android pickers only fire "input": forward it once as "change" (the first handler clears the field). */
+document.addEventListener("input", e => { const t = e.target; if (t.type === "file" && t.files && t.files[0]) t.dispatchEvent(new Event("change", { bubbles: true })); });
+window.addEventListener("error", e => { S.msg = { err: true, t: "Erreur de l'appli : " + (e.message || "inconnue") + ". Envoie ce message à Claude." }; try { render(); } catch (x) {} });
+window.addEventListener("unhandledrejection", e => { const r = e.reason; S.msg = { err: true, t: "Erreur : " + errText(r) + ". Envoie ce message à Claude." }; try { render(); } catch (x) {} });
 document.addEventListener("submit", async e => {
   if (e.target.id !== "loginForm") return;
   e.preventDefault();
