@@ -48,9 +48,30 @@ header .me span{overflow:hidden;text-overflow:ellipsis}
 .login{gap:14px;padding:20px 16px;margin-top:6vh}
 .login-t{font-family:var(--f-display);font-weight:700;font-size:24px;margin:0;text-wrap:balance}
 .login-f{display:flex;flex-direction:column;gap:12px}
-.login-f .field{flex:none}
+.login-f .field,.card > .field,.sheet .in > .field{flex:none}
+header{overflow:hidden}
+header .play{flex:1 1 auto}
+header .sync{margin-left:0}
+header .me{max-width:30%;flex:none}
+@media (max-width:520px){header .play{display:none} header .sync{margin-left:auto}}
 input[type=email],input[type=password]{font:15px var(--f-ui);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%;min-width:0}
 .av{width:28px;height:28px;border-radius:50%;flex:none;display:grid;place-items:center;color:#fff;font:600 13px var(--f-ui);font-style:normal}
+.tl{position:relative;height:64px;touch-action:none}
+.tl canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.tl input[type=range]{position:absolute;inset:0;width:100%;height:100%;margin:0;background:transparent;-webkit-appearance:none;appearance:none;cursor:pointer}
+.tl input[type=range]::-webkit-slider-runnable-track{background:transparent;height:64px}
+.tl input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:6px;height:64px;border-radius:3px;background:var(--ink);box-shadow:0 0 0 3px var(--surface)}
+.tl input[type=range]::-moz-range-track{background:transparent;height:64px}
+.tl input[type=range]::-moz-range-thumb{width:6px;height:64px;border:0;border-radius:3px;background:var(--ink)}
+.tl input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tl-legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted)}
+.tl-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.tl-prev{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:4px;min-height:96px}
+.tl-prev .meta{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;display:flex;justify-content:space-between;gap:8px}
+.tl-prev .txt2{font-family:var(--f-script);font-size:18px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.tl-prev.mine{border-color:var(--accent)}
+.stepper{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.stepper .btn{justify-content:center;padding:8px 4px;font-size:13px}
 .stage-did{font-family:var(--f-script);font-style:italic;font-size:18px;color:#C9C4B8;line-height:1.3}
 header .play{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 main{overflow-y:auto;overflow-x:hidden;padding-block:14px 120px;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
@@ -151,7 +172,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 </style>
 
 <div id="app">
-  <header><h1>Echorae</h1><span class="ver">v23.10</span><span class="play" id="hdrPlay"></span><span class="sync" id="sync"></span><span class="me" id="meChip" hidden></span></header>
+  <header><h1>Echorae</h1><span class="ver">v23.10-2</span><span class="play" id="hdrPlay"></span><span class="sync" id="sync"></span><span class="me" id="meChip" hidden></span></header>
   <main id="main"><div class="wrap" id="view"></div></main>
   <nav>
     <button data-tab="piece" aria-current="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h7"/></svg>Pièce</button>
@@ -608,6 +629,7 @@ function render() {
   if (S.booting || (S.cloud && !S.cloudReady)) { v.innerHTML = `<div class="card"><p class="note">Chargement de tes pièces…</p></div>`; renderSheet(); return; }
   if (S.play && !S.play.blocks) { v.innerHTML = `<div class="card"><p class="note">Chargement de « ${esc(S.play.title)} »…</p></div>`; renderSheet(); return; }
   v.innerHTML = S.tab === "piece" ? viewPiece() : S.tab === "voix" ? viewVoix() : viewRep();
+  if (S.tab === "rep" && $("#tlRange")) { drawTimeline(); tlPreview(+$("#tlRange").value); }
   renderSheet();
 }
 
@@ -760,7 +782,9 @@ function renderSheet() {
   sh.hidden = false;
   sh.innerHTML = `<div class="in">
     <div class="row" style="justify-content:space-between"><span class="label" style="${cstyle(b.who)}">${esc(b.who)}</span><button class="btn ghost" data-act="closeSheet">Fermer</button></div>
-    <div class="txt">${esc(b.text)}</div>
+    ${S.shEdit ? `<textarea id="shText">${esc(b.text)}</textarea>
+      <div class="row"><button class="btn primary" data-act="shEditSave">Enregistrer le texte</button><button class="btn ghost" data-act="shEditToggle">Annuler</button></div>`
+    : `<div class="txt">${esc(b.text)}</div>${S.cloud && !U.canWrite ? "" : `<div class="row"><button class="btn ghost" data-act="shEditToggle" style="padding:4px 0">Modifier le texte</button></div>`}`}
     ${S.sheetMsg ? `<div class="msg ${S.sheetMsg.err ? "err" : ""}">${esc(S.sheetMsg.t)}</div>` : ""}
     ${S.cloud && (!U.canWrite || !U.canUpload) ? "" : `${S.micBlocked ? `<div class="msg">Le micro direct n'est pas disponible ici. Enregistre avec le dictaphone de ton téléphone, puis choisis le fichier ci-dessous.</div>` : `<div class="row" style="gap:16px"><button class="recbtn ${recOn ? "on" : ""}" data-act="recToggle" aria-label="${recOn ? "Arrêter" : "Enregistrer"}"><span></span></button>
         <div><div class="timer" id="recTimer">${recOn ? "0:00" : has ? "Enregistrée" : "Prêt"}</div><div class="note">${recOn ? "Touche pour arrêter" : "Touche le bouton rouge pour enregistrer"}</div></div></div>
@@ -778,6 +802,59 @@ function renderSheet() {
     </div></div>`;
 }
 
+/* ---------- timeline de départ ---------- */
+function spokenIdx() { const out = []; S.play.blocks.forEach((b, i) => { if (b.type === "line") out.push(i); }); return out; }
+function isMine(b) { return b.type === "line" && (b.who === S.play.settings.me || GROUP.test(b.who)); }
+function startBlockIdx() {
+  const s = S.play.settings, bl = S.play.blocks;
+  if (s.startId) { const i = bl.findIndex(b => b.id === s.startId); if (i >= 0) return i; }
+  return Math.min(+s.start || 0, bl.length - 1);
+}
+function tlPos(L) { const si = startBlockIdx(); let p = L.findIndex(i => i >= si); return p < 0 ? 0 : p; }
+function shortScene(t) {
+  const m = fold(t).match(/ACTE\s+([IVXL\d]+).*?SCENE\s+([IVXL\d]+|PREMIERE)/);
+  return m ? m[1] + "·" + (m[2] === "PREMIERE" ? "1" : m[2]) : t.slice(0, 8);
+}
+function tlPreview(pos) {
+  const L = spokenIdx(), i = L[pos], b = S.play.blocks[i]; if (!b) return "";
+  const mine = isMine(b), el = $("#tlPrev"); if (!el) return;
+  const nMine = L.slice(0, pos + 1).filter(j => isMine(S.play.blocks[j])).length;
+  el.className = "tl-prev" + (mine ? " mine" : "");
+  el.innerHTML = `<div class="meta"><span>${esc(sceneOf(i))}</span><span>Réplique ${pos + 1}/${L.length}</span></div>
+    <div class="txt2"><span class="who" style="${cstyle(b.who)}">${esc(b.who)}.</span>${esc(b.text)}</div>
+    <div class="meta"><span>${mine ? "Ta réplique n° " + nMine : nMine ? nMine + " de tes répliques avant ce point" : "Avant ta première réplique"}</span><button class="btn ghost" data-act="tlEdit" style="padding:2px 6px">Modifier</button></div>`;
+}
+function drawTimeline() {
+  const cv = $("#tlCanvas"); if (!cv || !S.play) return;
+  const L = spokenIdx(), bl = S.play.blocks, n = L.length; if (!n) return;
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const g = cv.getContext("2d"); g.scale(dpr, dpr); g.clearRect(0, 0, w, h);
+  const cs = getComputedStyle(document.documentElement), col = v => cs.getPropertyValue(v).trim();
+  const x = p => n === 1 ? w / 2 : 3 + p * (w - 6) / (n - 1);
+  g.fillStyle = col("--bg"); g.fillRect(0, 20, w, h - 20);
+  /* scenes */
+  g.font = "600 10px " + col("--f-ui"); g.textBaseline = "top"; let lastLabel = -99;
+  bl.forEach((b, i) => {
+    if (b.type !== "heading") return;
+    let p = L.findIndex(j => j > i); if (p < 0) p = n - 1;
+    const xx = Math.round(x(p)) + 0.5;
+    g.fillStyle = col("--muted"); g.fillRect(xx - 0.5, 14, 1, h - 14);
+    if (xx - lastLabel > 34) { g.fillText(shortScene(b.text), Math.min(xx + 3, w - 30), 2); lastLabel = xx; }
+  });
+  /* lines */
+  L.forEach((i, p) => {
+    const b = bl[i], mine = isMine(b), xx = x(p);
+    g.fillStyle = mine ? col("--accent") : col("--line");
+    if (mine) g.fillRect(xx - 1, 22, 2.5, h - 24); else g.fillRect(xx - 0.5, h - 18, 1, 16);
+  });
+}
+function setTlPos(pos) {
+  const L = spokenIdx(); pos = Math.max(0, Math.min(L.length - 1, pos));
+  const r = $("#tlRange"); if (r) r.value = pos;
+  S.play.settings.startId = S.play.blocks[L[pos]].id; S.play.settings.start = L[pos]; saveSettings();
+  tlPreview(pos); const sel = $("#startSel"); if (sel) sel.value = "";
+}
 function viewRep() {
   const cs = chars();
   if (!cs.length) return `<div class="card"><p>Importe d'abord une pièce dans l'onglet Pièce.</p></div>`;
@@ -786,6 +863,7 @@ function viewRep() {
   const heads = S.play.blocks.map((b, i) => ({ b, i })).filter(o => o.b.type === "heading");
   const mine = S.play.blocks.filter(b => b.type === "line" && b.who === s.me);
   const seg = (name, val, label) => `<button data-act="set" data-k="${name}" data-v="${val}" aria-pressed="${s[name] === val}">${label}</button>`;
+  const L = spokenIdx(), pos = tlPos(L);
   return `<div class="card">
     <div class="field"><span class="label">Je joue</span>
       <select id="meSel">${cs.map(c => `<option value="${esc(c)}" ${c === s.me ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></div>
@@ -806,8 +884,20 @@ function viewRep() {
   <div class="card">
     <label class="toggle">Voix de synthèse pour les répliques non enregistrées<input type="checkbox" id="tts" ${s.tts ? "checked" : ""}></label>
     <label class="toggle">Lire les didascalies à voix haute<input type="checkbox" id="readDid" ${s.readDid ? "checked" : ""}></label>
-    <div class="field"><span class="label">Commencer à</span>
-      <select id="startSel"><option value="0">Début de la pièce</option>${heads.map(o => `<option value="${o.i}" ${s.start === o.i ? "selected" : ""}>${esc(o.b.text)}</option>`).join("")}</select></div>
+  </div>
+  <div class="card">
+    <span class="label">Commencer à</span>
+    <div class="tl"><canvas id="tlCanvas" aria-hidden="true"></canvas><input type="range" id="tlRange" min="0" max="${Math.max(0, L.length - 1)}" step="1" value="${pos}" aria-label="Position de départ dans la pièce"></div>
+    <div class="tl-legend"><span><i style="background:var(--accent)"></i>Mes répliques</span><span><i style="background:var(--line)"></i>Les autres</span><span><i style="background:var(--muted);width:2px"></i>Scènes</span></div>
+    <div class="tl-prev" id="tlPrev"></div>
+    <div class="stepper">
+      <button class="btn" data-act="tlMine" data-d="-1" aria-label="Ma réplique précédente">◀ Moi</button>
+      <button class="btn" data-act="tlStep" data-d="-1" aria-label="Réplique précédente">◀</button>
+      <button class="btn" data-act="tlStep" data-d="1" aria-label="Réplique suivante">▶</button>
+      <button class="btn" data-act="tlMine" data-d="1" aria-label="Ma réplique suivante">Moi ▶</button>
+    </div>
+    <div class="field"><span class="label">Aller à une scène</span>
+      <select id="startSel"><option value="">Choisir…</option><option value="0">Début de la pièce</option>${heads.map(o => `<option value="${o.i}">${esc(o.b.text)}</option>`).join("")}</select></div>
   </div>
   <button class="btn primary" data-act="go" style="justify-content:center;padding:14px;font-size:16px">Lever de rideau</button>`;
 }
@@ -954,7 +1044,9 @@ function startRehearsal() {
   player.src = SILENT; player.play().catch(() => {});
   try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; speechSynthesis.speak(u); } catch (e) {}
   $("#stage").hidden = false; lock();
-  runFrom(S.play.settings.start || 0);
+  let i = startBlockIdx(); const bl = S.play.blocks;
+  while (i > 0 && bl[i - 1].type !== "line") i--;
+  runFrom(i);
 }
 function jump(d) {
   halt(); const bl = S.play.blocks; let i = RUN.idx;
@@ -1022,7 +1114,7 @@ document.addEventListener("click", async e => {
       await deletePlay(p); break;
     }
     case "delCancel": S.confirmDel = false; render(); break;
-    case "openRec": S.sheetIdx = +el.dataset.i; S.sheetMsg = null; renderSheet(); break;
+    case "openRec": S.sheetIdx = +el.dataset.i; S.sheetMsg = null; S.shEdit = false; renderSheet(); break;
     case "recFirst": {
       const items = p.blocks.map((b, i) => ({ b, i })).filter(o => o.b.type === "line" && o.b.who === S.voixWho);
       const f = items.find(o => !S.rec.has(key(o.b))) || items[0]; if (f) { S.sheetIdx = f.i; renderSheet(); } break;
@@ -1033,12 +1125,29 @@ document.addEventListener("click", async e => {
     case "delRec": { const b = p.blocks[S.sheetIdx]; S.sheetMsg = null; await delAudio(b); render(); break; }
     case "nextRec": {
       if (REC.mr) REC.mr.stop();
-      const n = nextLineIdx(S.sheetIdx, p.blocks[S.sheetIdx].who); S.sheetIdx = n; S.sheetMsg = null; renderSheet();
+      const n = nextLineIdx(S.sheetIdx, p.blocks[S.sheetIdx].who); S.sheetIdx = n; S.sheetMsg = null; S.shEdit = false; renderSheet();
       if (n >= 0) document.querySelector(`.item[data-i="${n}"]`)?.scrollIntoView({ block: "nearest" });
       break;
     }
     case "set": p.settings[el.dataset.k] = el.dataset.v; saveSettings(); render(); break;
     case "go": startRehearsal(); break;
+    case "tlStep": setTlPos(+$("#tlRange").value + +el.dataset.d); break;
+    case "tlMine": {
+      const L = spokenIdx(), d = +el.dataset.d; let pos = +$("#tlRange").value + d;
+      while (pos >= 0 && pos < L.length && !isMine(S.play.blocks[L[pos]])) pos += d;
+      if (pos >= 0 && pos < L.length) setTlPos(pos); break;
+    }
+    case "tlEdit": {
+      const L = spokenIdx(), i = L[+$("#tlRange").value];
+      S.tab = "piece"; S.edit = i; render();
+      requestAnimationFrame(() => { const ed = document.querySelector(".editor"); if (ed) { ed.scrollIntoView({ block: "center" }); $("#edText")?.focus(); } });
+      break;
+    }
+    case "shEditToggle": S.shEdit = !S.shEdit; renderSheet(); if (S.shEdit) $("#shText")?.focus(); break;
+    case "shEditSave": {
+      const b = p.blocks[S.sheetIdx], v = $("#shText").value.trim(); if (!v) return;
+      b.text = v; S.shEdit = false; savePlay(); render(); break;
+    }
     case "rToggle":
       if (RUN.paused) runFrom(RUN.idx); else { halt(); RUN.paused = true; RUN.phase = ""; drawStage(); }
       break;
@@ -1060,7 +1169,11 @@ document.addEventListener("change", async e => {
   else if (t.id === "voixSel") { S.voixWho = t.value; S.sheetIdx = -1; render(); }
   else if (t.id === "meSel") { p.settings.me = t.value; saveSettings(); render(); }
   else if (t.id === "showMine" || t.id === "tts" || t.id === "readDid") { p.settings[t.id] = t.checked; saveSettings(); }
-  else if (t.id === "startSel") { p.settings.start = +t.value; saveSettings(); }
+  else if (t.id === "startSel" && t.value !== "") {
+    const L = spokenIdx(), hi = +t.value; let pos = L.findIndex(j => j >= hi); if (pos < 0) pos = 0;
+    setTlPos(pos); t.value = "";
+  }
+  else if (t.id === "tlRange") setTlPos(+t.value);
   else if (t.id === "spw") { p.settings.spw = +t.value; saveSettings(); render(); }
   else if (/^audio(File|File2|Cap)$/.test(t.id) && t.files[0]) { const f = t.files[0]; t.value = ""; await recordSave(f); }
   else if ((t.id === "pdfInput" || t.id === "pdfInput2") && t.files[0]) {
@@ -1083,6 +1196,7 @@ document.addEventListener("change", async e => {
 });
 /* Some Android pickers only fire "input": forward it once as "change" (the first handler clears the field). */
 document.addEventListener("input", e => { const t = e.target; if (t.type === "file" && t.files && t.files[0]) t.dispatchEvent(new Event("change", { bubbles: true })); });
+window.addEventListener("resize", () => { if (S.tab === "rep") drawTimeline(); });
 window.addEventListener("error", e => { S.msg = { err: true, t: "Erreur de l'appli : " + (e.message || "inconnue") + ". Envoie ce message à Claude." }; try { render(); } catch (x) {} });
 window.addEventListener("unhandledrejection", e => { const r = e.reason; S.msg = { err: true, t: "Erreur : " + errText(r) + ". Envoie ce message à Claude." }; try { render(); } catch (x) {} });
 document.addEventListener("submit", async e => {
@@ -1098,6 +1212,7 @@ document.addEventListener("submit", async e => {
   await startCloud(r.data.session);
 });
 document.addEventListener("focusout", () => setTimeout(() => { if (softPending) softRender(); }, 0));
+document.addEventListener("input", e => { if (e.target.id === "tlRange") tlPreview(+e.target.value); });
 document.addEventListener("input", e => { if (e.target.id === "spw") { S.play.settings.spw = +e.target.value; } });
 document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("#stage").hidden && !RUN.lock) lock(); });
 
