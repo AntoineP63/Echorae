@@ -5,6 +5,7 @@
 <title>Echorae</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500;6..96,700&family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
 <style>
@@ -43,6 +44,12 @@ header .me span{overflow:hidden;text-overflow:ellipsis}
 .person{display:flex;align-items:center;gap:10px;font-size:14px}
 .person img{width:28px;height:28px;border-radius:50%;flex:none}
 .person small{color:var(--muted)}
+.login{gap:14px;padding:20px 16px;margin-top:6vh}
+.login-t{font-family:var(--f-display);font-weight:700;font-size:24px;margin:0;text-wrap:balance}
+.login-f{display:flex;flex-direction:column;gap:12px}
+.login-f .field{flex:none}
+input[type=email],input[type=password]{font:15px var(--f-ui);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%;min-width:0}
+.av{width:28px;height:28px;border-radius:50%;flex:none;display:grid;place-items:center;color:#fff;font:600 13px var(--f-ui);font-style:normal}
 .stage-did{font-family:var(--f-script);font-style:italic;font-size:18px;color:#C9C4B8;line-height:1.3}
 header .play{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 main{overflow-y:auto;overflow-x:hidden;padding-block:14px 120px;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
@@ -371,116 +378,115 @@ const LS = {
   set(k, v) { try { localStorage.setItem("souffleur:" + k, JSON.stringify(v)); } catch (e) {} }
 };
 function settingsFor(id, base) { return { ...DEF, ...(base || {}), ...(LS.get("set:" + id) || {}), ...((typeof U !== "undefined" && U.prefs[id]) || {}) }; }
-let prefT;
-function saveSettings() {
-  if (!S.play) return; LS.set("set:" + S.play.id, S.play.settings);
-  if (!S.cloud) { DB.put("plays", S.play); return; }
-  if (!U.prefRef) return;
-  U.prefs[S.play.id] = { ...S.play.settings };
-  clearTimeout(prefT); const data = { plays: JSON.parse(JSON.stringify(U.prefs)) };
-  prefT = setTimeout(() => U.prefRef.set(data).catch(() => {}), 700);
-}
-/* ---------- who is viewing ---------- */
-const U = { api: null, me: null, owner: false, canWrite: true, canUpload: true, prefRef: null, prefs: {}, names: {}, asked: new Set() };
+/* ---------- compte troupe (Supabase) ---------- */
+const SB_URL = "https://xlhafziqalezawxfumcq.supabase.co";
+const SB_KEY = "sb_publishable_WVCIzFmi6Jpt84rEObvb3w_mjZH8ToH";
+let sb = null;
+const U = { me: null, owner: false, canWrite: true, canUpload: true, prefs: {}, names: {}, asked: new Set() };
 function nameOf(id) { const p = U.names[id]; return id && U.me && id === U.me.id ? "toi" : (p && p.name) || "un comédien"; }
-function wantNames(ids) {
-  if (!U.api) return;
-  const need = [...new Set(ids)].filter(i => i && !U.asked.has(i)); if (!need.length) return;
+async function wantNames(ids) {
+  const need = [...new Set(ids)].filter(i => i && !U.asked.has(i)); if (!need.length || !sb) return;
   need.forEach(i => U.asked.add(i));
-  U.api.profiles(need).then(r => { Object.assign(U.names, r || {}); softRender(); }).catch(() => {});
+  const { data } = await sb.from("profiles").select("id,name").in("id", need);
+  (data || []).forEach(p => U.names[p.id] = p);
+  softRender();
 }
-async function startUser() {
-  try {
-    const u = await window.claude.use("user"); if (!u) return;
-    U.api = u; U.me = await u.me(); U.owner = !!U.me.isOwner;
-    const w = await u.can("data.write"); if (w === false) U.canWrite = false;
-    if (U.me.id) {
-      U.names[U.me.id] = U.me;
-      U.prefRef = C.db.doc("data/users/" + U.me.id + "/prefs");
-      try { const d = await U.prefRef.get(); if (d.exists) U.prefs = (d.data() || {}).plays || {}; } catch (e) {}
-    }
-    const chip = $("#meChip");
-    if (chip && (U.me.name || U.me.id)) { chip.hidden = false; chip.innerHTML = `<img alt="" src="${esc(U.me.avatarUrl)}"><span></span>`; chip.querySelector("span").textContent = U.me.name || "Connecté"; }
-  } catch (e) {}
+function setChip() {
+  const chip = $("#meChip"); if (!chip) return;
+  if (!S.cloud || !U.me) { chip.hidden = true; return; }
+  chip.hidden = false; chip.innerHTML = "<span></span>"; chip.querySelector("span").textContent = U.me.name || U.me.email || "Connecté";
 }
 
-/* ---------- account sync (db + assets) ---------- */
-const C = { db: null, assets: null, unsubPlays: null, unsubAudio: null, audio: new Map(), urls: new Map(), chain: Promise.resolve() };
+const C = { audio: new Map(), by: new Map(), urls: new Map(), chain: Promise.resolve(), chPlays: null, chVoices: null };
 function errText(e) {
-  const c = e && e.code;
-  return c === "too_large" ? "Ce fichier est trop gros (20 Mo maximum)."
-    : c === "quota_or_state" || c === "quota_exceeded" ? "L'espace de stockage de l'appli est plein. Efface des voix inutiles puis réessaie."
-    : c === "rate_limited" || c === "resource_exhausted" ? "Trop d'envois d'un coup. Attends quelques secondes puis réessaie."
-    : c === "no_assets" || c === "not_granted" ? "Ton compte ne permet pas d'ajouter des voix sur cette appli."
-    : c === "unsupported_type" ? "Ce format audio n'est pas lisible par l'appli. Dans les réglages du dictaphone, choisis le format M4A (ou AAC/MP3) puis réenregistre."
-    : (e && e.message) || "Erreur inconnue.";
+  const m = (e && (e.message || e.error_description || e.error)) || "";
+  if (/invalid login credentials/i.test(m)) return "E-mail ou mot de passe incorrect.";
+  if (/email not confirmed/i.test(m)) return "Ce compte n'est pas encore confirmé. Dans Supabase, coche « Auto Confirm User » en créant le compte.";
+  if (/row-level security|permission denied|jwt|not authorized/i.test(m)) return "Le serveur a refusé l'opération. Reconnecte-toi, ou vérifie que le script Supabase a bien été exécuté.";
+  if (/relation .* does not exist|could not find the table/i.test(m)) return "Le serveur n'est pas encore préparé : exécute le script echorae-supabase.sql dans Supabase.";
+  if (/bucket not found/i.test(m)) return "Le stockage des voix n'existe pas : exécute le script echorae-supabase.sql dans Supabase.";
+  if (/payload too large|exceeded the maximum/i.test(m)) return "Ce fichier est trop gros pour le stockage gratuit (50 Mo maximum).";
+  if (/failed to fetch|network/i.test(m)) return "Pas de connexion Internet, ou le serveur est en pause (voir supabase.com → Restore).";
+  return m || "Erreur inconnue.";
 }
+const chk = r => { if (r && r.error) throw r.error; return r ? r.data : null; };
 function queue(fn) {
   const run = C.chain.then(fn);
-  C.chain = run.catch(e => { S.saving = false; S.msg = { err: true, t: "La sauvegarde sur ton compte a échoué : " + errText(e) + " Tes modifications restent affichées ; réessaie dans un moment." }; render(); });
+  C.chain = run.catch(e => { S.saving = false; S.msg = { err: true, t: "La sauvegarde a échoué : " + errText(e) + " Tes modifications restent affichées ; réessaie dans un moment." }; render(); });
   return run;
 }
 function setStatus() {
   const el = $("#sync"); if (!el) return;
   if (S.booting) { el.className = "sync"; el.innerHTML = "<i></i>Connexion…"; return; }
+  if (S.auth) { el.className = "sync"; el.innerHTML = ""; return; }
   if (!S.cloud) { el.className = "sync"; el.innerHTML = "<i></i>Sur cet appareil"; return; }
   el.className = "sync " + (S.saving ? "busy" : "on");
   el.innerHTML = "<i></i>" + (S.saving ? "Enregistrement…" : "Synchronisé");
 }
+
+let prefT;
+function saveSettings() {
+  if (!S.play) return; LS.set("set:" + S.play.id, S.play.settings);
+  if (!S.cloud) { DB.put("plays", S.play); return; }
+  U.prefs[S.play.id] = { ...S.play.settings };
+  const row = { user_id: U.me.id, play_id: S.play.id, settings: U.prefs[S.play.id] };
+  clearTimeout(prefT); prefT = setTimeout(() => sb.from("prefs").upsert(row).then(() => {}), 700);
+}
+
 let saveT;
 function savePlay() {
   const p = S.play; if (!p) return; clearTimeout(saveT);
   if (!S.cloud) { saveT = setTimeout(() => DB.put("plays", p), 300); return; }
-  p.updated = Date.now(); p.loadedAt = p.updated; S.saving = true; setStatus();
+  S.saving = true; setStatus();
   saveT = setTimeout(() => queue(() => cloudWrite(p)), 800);
 }
 async function cloudWrite(p) {
-  const chunks = []; let cur = [], size = 0;
-  for (const b of p.blocks) { const n = JSON.stringify(b).length; if (cur.length && size + n > 90000) { chunks.push(cur); cur = []; size = 0; } cur.push(b); size += n; }
-  chunks.push(cur);
-  const pid = i => `plays/${p.id}/parts/p${String(i).padStart(4, "0")}`;
-  for (let i = 0; i < chunks.length; i++) await C.db.doc(pid(i)).set({ n: i, blocks: chunks[i] });
-  for (let i = chunks.length; i < (p.parts || 0); i++) await C.db.doc(pid(i)).delete();
-  p.parts = chunks.length;
-  await C.db.doc("plays/" + p.id).set({ title: p.title, created: p.created || Date.now(), updated: p.updated || Date.now(), parts: p.parts });
+  const row = chk(await sb.from("plays").upsert({ id: p.id, title: p.title, blocks: p.blocks, updated_at: new Date().toISOString() }).select("updated_at,created_by").single());
+  p.updated = Date.parse(row.updated_at); p.loadedAt = p.updated; p.created_by = row.created_by;
   p.pending = false; S.saving = false; setStatus();
 }
 async function loadParts(p) {
-  const snap = await C.db.collection(`plays/${p.id}/parts`).get();
-  const parts = snap.docs.map(d => d.data()).sort((a, b) => a.n - b.n);
-  p.blocks = JSON.parse(JSON.stringify(parts.flatMap(x => x.blocks || [])));
-  p.loadedAt = p.updated;
+  const row = chk(await sb.from("plays").select("blocks,updated_at").eq("id", p.id).single());
+  p.blocks = row.blocks || []; p.updated = Date.parse(row.updated_at); p.loadedAt = p.updated;
+}
+async function refreshVoices(p) {
+  if (!p || !S.cloud) return;
+  const rows = chk(await sb.from("voices").select("block_id,path,recorded_by").eq("play_id", p.id));
+  if (S.play !== p) return;
+  C.audio.clear(); C.by = new Map(); S.rec = new Set();
+  rows.forEach(r => { const k = p.id + ":" + r.block_id; C.audio.set(k, r.path); S.rec.add(k); if (r.recorded_by) C.by.set(k, r.recorded_by); });
+  wantNames([...C.by.values()]);
+  softRender();
 }
 function watchAudio(p) {
-  C.unsubAudio?.(); C.unsubAudio = null; C.audio.clear(); S.rec = new Set();
+  if (C.chVoices) { sb.removeChannel(C.chVoices); C.chVoices = null; }
+  C.audio.clear(); C.by = new Map(); S.rec = new Set();
   if (!p || !S.cloud) return;
-  C.unsubAudio = C.db.collection("audio").where("play", "==", p.id).onSnapshot(snap => {
-    C.audio.clear(); S.rec = new Set();
-    C.by = new Map();
-    snap.docs.forEach(d => { const x = d.data(); const k = x.play + ":" + x.block; C.audio.set(k, x.asset); S.rec.add(k); if (x.by) C.by.set(k, x.by); });
-    wantNames([...C.by.values()]);
-    softRender();
-  }, () => {});
+  refreshVoices(p).catch(e => { S.msg = { err: true, t: errText(e) }; render(); });
+  C.chVoices = sb.channel("voices-" + p.id)
+    .on("postgres_changes", { event: "*", schema: "public", table: "voices", filter: "play_id=eq." + p.id }, () => refreshVoices(p).catch(() => {}))
+    .subscribe();
 }
-async function onPlays(snap) {
+async function loadPlays() {
+  const rows = chk(await sb.from("plays").select("id,title,created_at,updated_at,created_by").order("created_at", { ascending: false }));
   const old = new Map(S.plays.map(p => [p.id, p]));
-  const list = snap.docs.map(d => {
-    const m = d.data(), o = old.get(d.id);
-    if (o && o.cloud) { o.title = m.title; o.updated = m.updated; o.parts = m.parts; o.created = m.created; return o; }
-    return { id: d.id, title: m.title, created: m.created, updated: m.updated, parts: m.parts, blocks: null, cloud: true, settings: settingsFor(d.id) };
+  const list = rows.map(r => {
+    const o = old.get(r.id), m = { title: r.title, created: Date.parse(r.created_at), updated: Date.parse(r.updated_at), created_by: r.created_by };
+    if (o && o.cloud) return Object.assign(o, m);
+    return { id: r.id, ...m, blocks: null, cloud: true, settings: settingsFor(r.id) };
   });
-  S.plays.forEach(p => { if (p.cloud && p.pending && !list.includes(p)) list.push(p); });
-  list.sort((a, b) => (b.created || 0) - (a.created || 0));
+  S.plays.forEach(p => { if (p.cloud && p.pending && !list.includes(p)) list.unshift(p); });
   S.plays = list;
   if (!S.cloudReady) { S.cloudReady = true; const last = LS.get("last"); await selectPlay(list.find(p => p.id === last) || list[0] || null); return; }
   const cur = S.play ? list.find(p => p.id === S.play.id) : null;
   if (!cur) { await selectPlay(list[0] || null); return; }
-  if (cur.blocks && (cur.updated || 0) > (cur.loadedAt || 0) && !S.saving && S.edit < 0) { await loadParts(cur); }
+  if (cur.blocks && (cur.updated || 0) > (cur.loadedAt || 0) && !S.saving && S.edit < 0) await loadParts(cur);
   softRender();
 }
 async function selectPlay(p) {
   S.play = p; S.edit = -1; S.voixWho = ""; S.sheetIdx = -1; S.confirmDel = false; S.renameChar = "";
   if (p) LS.set("last", p.id);
+  U.owner = !S.cloud || !!(p && U.me && (p.created_by === U.me.id || p.pending));
   if (S.cloud) { watchAudio(p); if (p && !p.blocks) { render(); try { await loadParts(p); } catch (e) { S.msg = { err: true, t: "Impossible de charger la pièce : " + errText(e) }; } } }
   render();
 }
@@ -489,9 +495,10 @@ async function newPlay(title, blocks) {
   const p = { id: uid(), title, blocks, created: Date.now(), updated: Date.now(), settings: { ...DEF, me: c[0] || "" } };
   LS.set("set:" + p.id, p.settings);
   if (S.cloud) {
-    Object.assign(p, { cloud: true, pending: true, loadedAt: p.updated });
+    Object.assign(p, { cloud: true, pending: true, loadedAt: p.updated, created_by: U.me.id });
     S.plays.unshift(p); S.saving = true; await selectPlay(p); setStatus();
     await queue(() => cloudWrite(p));
+    U.prefs[p.id] = p.settings; sb.from("prefs").upsert({ user_id: U.me.id, play_id: p.id, settings: p.settings }).then(() => {});
   } else { await DB.put("plays", p); S.plays.unshift(p); S.play = p; S.edit = -1; S.voixWho = ""; }
   return p;
 }
@@ -502,70 +509,48 @@ async function deletePlay(p) {
     if (!S.plays.length) await newPlay("Le Médecin malgré lui (exemple)", parseText(SAMPLE));
     S.play = S.plays[0]; render(); return;
   }
-  const audio = [...C.audio.entries()];
   S.saving = true; setStatus();
   await queue(async () => {
-    for (const [k, id] of audio) { await C.db.doc("audio/" + k.replace(":", "~")).delete(); if (C.assets) await C.assets.delete(id).catch(() => {}); }
-    for (let i = 0; i < (p.parts || 0); i++) await C.db.doc(`plays/${p.id}/parts/p${String(i).padStart(4, "0")}`).delete();
-    await C.db.doc("plays/" + p.id).delete();
+    const rows = chk(await sb.from("voices").select("path").eq("play_id", p.id));
+    if (rows.length) await sb.storage.from("voices").remove(rows.map(r => r.path));
+    chk(await sb.from("plays").delete().eq("id", p.id));
     S.saving = false; setStatus();
   });
   S.plays = S.plays.filter(x => x.id !== p.id);
   await selectPlay(S.plays[0] || null);
 }
 
-/* Audio is stored as an artifact asset; only webm/mp4 containers are accepted, so other formats are re-encoded first. */
-async function toUploadable(blob) {
-  const t = (blob.type || "").toLowerCase(), n = (blob.name || "").toLowerCase();
-  if (t.includes("webm") || n.endsWith(".webm")) return { blob, type: "video/webm" };
-  if (/mp4|m4a/.test(t) || /\.(m4a|mp4)$/.test(n)) return { blob, type: "video/mp4" };
-  const AC = window.AudioContext || window.webkitAudioContext;
-  const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
-  if (!AC || !mime) throw { code: "unsupported_type" };
-  const ctx = new AC();
-  try {
-    const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
-    const dest = ctx.createMediaStreamDestination(), src = ctx.createBufferSource();
-    src.buffer = buf; src.connect(dest);
-    const mr = new MediaRecorder(dest.stream, { mimeType: mime }), chunks = [];
-    mr.ondataavailable = e => e.data.size && chunks.push(e.data);
-    const stopped = new Promise(r => mr.onstop = r);
-    await ctx.resume(); mr.start(); src.start();
-    await new Promise(r => src.onended = r); await new Promise(r => setTimeout(r, 150));
-    mr.stop(); await stopped;
-    return { blob: new Blob(chunks, { type: mime.split(";")[0] }), type: mime.includes("webm") ? "video/webm" : "video/mp4" };
-  } catch (e) { throw e && e.code ? e : { code: "unsupported_type" }; }
-  finally { ctx.close().catch(() => {}); }
-}
+const EXT = { "audio/webm": "webm", "video/webm": "webm", "audio/mp4": "m4a", "video/mp4": "m4a", "audio/x-m4a": "m4a", "audio/mpeg": "mp3", "audio/aac": "aac", "audio/ogg": "ogg", "audio/wav": "wav", "audio/x-wav": "wav", "audio/3gpp": "3gp", "audio/amr": "amr" };
 async function saveAudio(b, blob, p = S.play) {
   const k = p.id + ":" + b.id;
   if (!S.cloud) { await DB.put("audio", blob, k); S.rec.add(k); return; }
-  if (!C.assets) throw { code: "no_assets" };
-  const up = await toUploadable(blob);
-  const r = await C.assets.upload(up.blob, { type: up.type });
-  const old = p === S.play ? C.audio.get(k) : null;
-  await queue(() => C.db.doc("audio/" + p.id + "~" + b.id).set({ play: p.id, block: b.id, asset: r.id, at: Date.now(), by: (U.me && U.me.id) || null }));
-  C.urls.set(r.id, Promise.resolve(URL.createObjectURL(up.blob)));
-  if (p === S.play) { C.audio.set(k, r.id); S.rec.add(k); if (U.me && U.me.id) (C.by || (C.by = new Map())).set(k, U.me.id); }
-  if (old && old !== r.id) C.assets.delete(old).catch(() => {});
+  const type = (blob.type || "audio/mp4").split(";")[0];
+  const ext = EXT[type] || ((blob.name || "").split(".").pop() || "audio").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5) || "audio";
+  const path = `${p.id}/${b.id}-${Date.now()}.${ext}`;
+  chk(await sb.storage.from("voices").upload(path, blob, { contentType: type, upsert: false }));
+  const prev = chk(await sb.from("voices").select("path").eq("play_id", p.id).eq("block_id", b.id).maybeSingle());
+  await queue(async () => chk(await sb.from("voices").upsert({ play_id: p.id, block_id: b.id, path, recorded_by: U.me.id, updated_at: new Date().toISOString() })));
+  C.urls.set(path, Promise.resolve(URL.createObjectURL(blob)));
+  if (p === S.play) { C.audio.set(k, path); S.rec.add(k); C.by.set(k, U.me.id); }
+  if (prev && prev.path && prev.path !== path) sb.storage.from("voices").remove([prev.path]).then(() => {});
 }
 async function delAudio(b) {
   const k = key(b); S.rec.delete(k);
   if (!S.cloud) { await DB.del("audio", k); return; }
-  const id = C.audio.get(k); C.audio.delete(k);
-  await queue(async () => { await C.db.doc("audio/" + S.play.id + "~" + b.id).delete(); if (id && C.assets) await C.assets.delete(id).catch(() => {}); });
+  const path = C.audio.get(k); C.audio.delete(k); C.by.delete(k);
+  await queue(async () => { chk(await sb.from("voices").delete().eq("play_id", S.play.id).eq("block_id", b.id)); if (path) await sb.storage.from("voices").remove([path]); });
 }
 async function audioURL(b) {
   const k = key(b);
   if (S.cloud) {
-    const id = C.audio.get(k); if (!id) return null;
-    if (!C.urls.has(id)) C.urls.set(id, fetch("/_blob/" + id).then(r => { if (!r.ok) throw 0; return r.blob(); }).then(x => URL.createObjectURL(x)).catch(() => { C.urls.delete(id); return "/_blob/" + id; }));
-    return C.urls.get(id);
+    const path = C.audio.get(k); if (!path) return null;
+    if (!C.urls.has(path)) C.urls.set(path, sb.storage.from("voices").download(path).then(r => { if (r.error) throw r.error; return URL.createObjectURL(r.data); }).catch(() => { C.urls.delete(path); return null; }));
+    return C.urls.get(path);
   }
   const blob = await DB.get("audio", k); return blob ? URL.createObjectURL(blob) : null;
 }
 
-/* Copy plays and recordings kept on this device into the account. A local play whose lines match an account play at 80% or more is treated as the same play. */
+/* Copy plays and recordings kept on this device into the troupe account. A local play whose lines match an account play at 80% or more is treated as the same play. */
 async function migrate() {
   const items = S.local.slice(); let plays = 0, voices = 0;
   const norm = b => b.who + "|" + b.text.replace(/\s+/g, " ").trim();
@@ -581,12 +566,12 @@ async function migrate() {
       }
       let created = false;
       if (!target) {
-        target = { id: uid(), title: lp.title, blocks: JSON.parse(JSON.stringify(lp.blocks)), created: Date.now(), updated: Date.now(), cloud: true, pending: true };
+        target = { id: uid(), title: lp.title, blocks: JSON.parse(JSON.stringify(lp.blocks)), created: Date.now(), updated: Date.now(), cloud: true, pending: true, created_by: U.me.id };
         target.loadedAt = target.updated; target.settings = settingsFor(target.id, lp.settings);
         S.plays.unshift(target); await queue(() => cloudWrite(target)); created = true;
       }
       LS.set("set:" + target.id, { ...settingsFor(target.id), ...(lp.settings || {}) }); target.settings = settingsFor(target.id);
-      const existing = new Set((await C.db.collection("audio").where("play", "==", target.id).get()).docs.map(d => d.data().block));
+      const existing = new Set(chk(await sb.from("voices").select("block_id").eq("play_id", target.id)).map(r => r.block_id));
       const used = new Set();
       for (const k of [...S.localRec].filter(k => k.startsWith(lp.id + ":"))) {
         const lb = lp.blocks.find(b => b.id === k.slice(lp.id.length + 1)); if (!lb) continue;
@@ -599,7 +584,7 @@ async function migrate() {
       LS.set("migrated:" + lp.id, true); plays++;
       S.local = S.local.filter(x => x !== lp);
     }
-    S.msg = { t: `C'est fait : ${plays} pièce${plays > 1 ? "s" : ""} et ${voices} voix sont maintenant sur ton compte.` };
+    S.msg = { t: `C'est fait : ${plays} pièce${plays > 1 ? "s" : ""} et ${voices} voix sont maintenant partagées avec la troupe.` };
   } catch (e) { S.msg = { err: true, t: "L'envoi s'est arrêté : " + errText(e) + " Relance-le pour continuer, ce qui est déjà envoyé ne sera pas dupliqué." }; }
   watchAudio(S.play); render();
 }
@@ -617,19 +602,46 @@ function render() {
   $("#hdrPlay").textContent = S.play ? S.play.title : "";
   setStatus(); softPending = false;
   const v = $("#view");
+  document.querySelector("nav").hidden = !!S.auth;
+  if (S.auth === "login" && !S.booting) { v.innerHTML = viewLogin(); renderSheet(); return; }
   if (S.booting || (S.cloud && !S.cloudReady)) { v.innerHTML = `<div class="card"><p class="note">Chargement de tes pièces…</p></div>`; renderSheet(); return; }
   if (S.play && !S.play.blocks) { v.innerHTML = `<div class="card"><p class="note">Chargement de « ${esc(S.play.title)} »…</p></div>`; renderSheet(); return; }
   v.innerHTML = S.tab === "piece" ? viewPiece() : S.tab === "voix" ? viewVoix() : viewRep();
   renderSheet();
 }
 
+function viewLogin() {
+  return `<div class="card login">
+    <h2 class="login-t">Bienvenue dans Echorae</h2>
+    <p class="note" style="margin:0">Connecte-toi avec l'e-mail et le mot de passe que t'a donnés ta troupe.</p>
+    ${S.offlineLib ? `<div class="msg err">Impossible de joindre le serveur. Vérifie ta connexion Internet puis recharge la page.</div>` : ""}
+    <form id="loginForm" class="login-f">
+      <div class="field"><span class="label">E-mail</span><input type="email" id="loginEmail" autocomplete="username" required value="${esc(LS.get("email") || "")}"></div>
+      <div class="field"><span class="label">Mot de passe</span><input type="password" id="loginPass" autocomplete="current-password" required></div>
+      <button class="btn primary" type="submit" style="justify-content:center" ${S.loggingIn ? "disabled" : ""}>${S.loggingIn ? "Connexion…" : "Se connecter"}</button>
+    </form>
+    ${S.msg ? `<div class="msg ${S.msg.err ? "err" : ""}">${esc(S.msg.t)}</div>` : ""}
+    <span class="note">Mot de passe oublié ? Demande à la personne qui gère la troupe de le changer.</span>
+  </div>
+  <button class="btn ghost" data-act="goLocal" style="align-self:center">Utiliser sans compte, sur cet appareil</button>`;
+}
+function accountCard() {
+  if (!S.cloud) return S.offlineLib ? "" : `<div class="card"><span class="label">Troupe</span><p class="note" style="margin:0">Tu utilises Echorae sans compte : rien n'est partagé.</p><div class="row"><button class="btn" data-act="goLogin">Me connecter à ma troupe</button></div></div>`;
+  return `<div class="card"><span class="label">Mon compte</span>
+    <div class="row"><div class="field"><span class="label">Prénom affiché à la troupe</span><input type="text" id="myName" value="${esc(U.me.name)}" placeholder="Ex. Antoine"></div></div>
+    ${!U.me.name ? `<span class="note">Indique ton prénom pour que la troupe sache qui a enregistré chaque voix.</span>` : ""}
+    <div class="row"><span class="note" style="flex:1;min-width:0;overflow-wrap:anywhere">${esc(U.me.email)}</span>
+      <button class="btn" data-act="pwToggle">Changer de mot de passe</button><button class="btn ghost" data-act="logout">Se déconnecter</button></div>
+    ${S.pwOpen ? `<div class="row"><div class="field"><span class="label">Nouveau mot de passe (8 caractères minimum)</span><input type="password" id="newPass" autocomplete="new-password"></div><button class="btn primary" data-act="pwSave">Enregistrer</button></div>` : ""}
+  </div>`;
+}
 function troupeCard() {
   if (!S.cloud) return "";
   const by = C.by ? [...C.by.values()] : [];
   const counts = {}; by.forEach(i => counts[i] = (counts[i] || 0) + 1);
   const ids = Object.keys(counts);
-  const people = ids.map(i => { const p = U.names[i] || {}; return `<div class="person"><img alt="" src="${esc(p.avatarUrl || "")}"><span>${esc(i === U.me?.id ? (p.name || "Toi") + " (toi)" : p.name || "Un comédien")}</span><small>${counts[i]} voix</small></div>`; }).join("");
-  const howto = U.owner ? `<p class="note" style="margin:0">Pour inviter un comédien : ouvre le menu <b>Partager</b> de l'appli, ajoute son adresse e-mail et donne-lui le rôle <b>Éditeur</b>. Il se connecte avec son propre compte Claude (gratuit), choisit son personnage et enregistre ses répliques. Ses réglages de répétition restent les siens.</p>` : "";
+  const people = ids.map(i => { const p = U.names[i] || {}; const n = i === U.me?.id ? (U.me.name || "Toi") + " (toi)" : p.name || "Un comédien"; return `<div class="person"><i class="av" style="${cdot(n)}">${esc(n.charAt(0).toUpperCase())}</i><span>${esc(n)}</span><small>${counts[i]} voix</small></div>`; }).join("");
+  const howto = U.owner ? `<p class="note" style="margin:0">Pour ajouter un comédien : sur supabase.com, ouvre ton projet → <b>Authentication</b> → <b>Users</b> → <b>Add user</b>, indique son e-mail et un mot de passe, coche « Auto Confirm User ». Envoie-lui ensuite l'adresse de l'appli, son e-mail et son mot de passe.</p>` : "";
   return `<div class="card"><span class="label">Troupe</span>
     ${people ? `<div class="people">${people}</div>` : `<p class="note" style="margin:0">Personne n'a encore enregistré de voix sur cette pièce.</p>`}
     ${howto}</div>`;
@@ -641,10 +653,10 @@ function roNote() {
 function migrateCard() {
   if (!S.cloud || !S.local.length) return "";
   const nv = [...S.localRec].filter(k => S.local.some(p => k.startsWith(p.id + ":"))).length;
-  return `<div class="card"><span class="label">Sur ce téléphone uniquement</span>
-    <p style="margin:0">${S.local.length} pièce${S.local.length > 1 ? "s" : ""} et ${nv} voix enregistrée${nv > 1 ? "s" : ""} avant la synchronisation sont seulement dans ce navigateur : ${S.local.map(p => "« " + esc(p.title) + " »").join(", ")}.</p>
-    <div class="row"><button class="btn primary" data-act="migrate">Les envoyer sur mon compte</button></div>
-    <span class="note">Si la même pièce existe déjà sur ton compte, seules les voix sont ajoutées.</span></div>`;
+  return `<div class="card"><span class="label">Sur cet appareil uniquement</span>
+    <p style="margin:0">${S.local.length} pièce${S.local.length > 1 ? "s" : ""} et ${nv} voix enregistrée${nv > 1 ? "s" : ""} sans compte sont seulement dans ce navigateur : ${S.local.map(p => "« " + esc(p.title) + " »").join(", ")}.</p>
+    <div class="row"><button class="btn primary" data-act="migrate">Les partager avec la troupe</button></div>
+    <span class="note">Si la même pièce existe déjà, seules les voix sont ajoutées.</span></div>`;
 }
 function importCard(p) {
   if (S.cloud && !U.canWrite) return `<div class="card">
@@ -652,7 +664,7 @@ function importCard(p) {
     ${roNote()}</div>`;
   return `<div class="card">
     ${S.plays.length ? `<div class="row"><div class="field"><span class="label">Pièce</span>
-      <select id="playSel">${S.plays.map(x => `<option value="${x.id}" ${p && x.id === p.id ? "selected" : ""}>${esc(x.title)}</option>`).join("")}</select></div></div>` : `<p style="margin:0">Aucune pièce sur ton compte pour l'instant. Importe ton texte pour commencer.</p>`}
+      <select id="playSel">${S.plays.map(x => `<option value="${x.id}" ${p && x.id === p.id ? "selected" : ""}>${esc(x.title)}</option>`).join("")}</select></div></div>` : `<p style="margin:0">Aucune pièce pour l'instant. Importe ton texte pour commencer.</p>`}
     <div class="row">
       <label class="btn primary filebtn" for="pdfInput">Importer un PDF<input type="file" id="pdfInput" accept=".pdf,application/pdf,.txt,text/plain,.json,application/json"></label>
       <button class="btn" data-act="paste">Coller un texte</button>
@@ -663,17 +675,17 @@ function importCard(p) {
     ${S.paste ? `<textarea id="pasteTxt" placeholder="Colle ici le texte de la pièce. Les noms de personnages en MAJUSCULES en début de ligne (HAMLET. ou HAMLET :) et les didascalies entre parenthèses sont reconnus."></textarea>
       <div class="row"><button class="btn primary" data-act="parsePaste">Analyser le texte</button><button class="btn ghost" data-act="paste">Annuler</button></div>` : ""}
     ${S.msg ? `<div class="msg ${S.msg.err ? "err" : ""}">${esc(S.msg.t)}</div>` : ""}
-    <span class="note">${S.cloud ? "Tes pièces et tes voix sont enregistrées sur ton compte Claude : tu les retrouves sur tous tes appareils." : "Tes pièces et tes voix sont enregistrées sur cet appareil. « Sauvegarder pièce + voix » crée un fichier à garder, à envoyer à ta troupe ou à ouvrir sur un autre appareil avec « Importer »."}</span>
+    <span class="note">${S.cloud ? "Les pièces et les voix sont partagées avec toute ta troupe, sur tous vos appareils." : "Tes pièces et tes voix sont enregistrées sur cet appareil. « Sauvegarder pièce + voix » crée un fichier à garder, à envoyer à ta troupe ou à ouvrir sur un autre appareil avec « Importer »."}</span>
   </div>`;
 }
 function viewPiece() {
   const p = S.play;
-  if (!p) return importCard(null) + migrateCard();
+  if (!p) return importCard(null) + migrateCard() + accountCard();
   const b = p.blocks;
   const nl = b.filter(x => x.type === "line").length, nd = b.filter(x => x.type === "didasc").length;
   const cs = chars();
   const counts = Object.fromEntries(cs.map(c => [c, b.filter(x => x.type === "line" && x.who === c).length]));
-  let h = importCard(p) + migrateCard() + troupeCard() + `
+  let h = importCard(p) + migrateCard() + troupeCard() + accountCard() + `
 <div class="card">
     <div class="row"><div class="field"><span class="label">Titre</span><input type="text" id="titleIn" value="${esc(p.title)}"></div></div>
     <div class="stats"><div><b>${cs.length}</b><span>personnages</span></div><div><b>${nl}</b><span>répliques</span></div><div><b>${nd}</b><span>didascalies</span></div></div>
@@ -819,8 +831,7 @@ async function recStart() {
 }
 async function recordSave(blob) {
   const b = S.play.blocks[S.sheetIdx]; if (!b) return;
-  const conv = S.cloud && !/webm|mp4|m4a/i.test((blob.type || "") + (blob.name || ""));
-  S.sheetMsg = { t: conv ? "Conversion du fichier (cela prend la durée de l'enregistrement), puis envoi sur ton compte…" : S.cloud ? "Envoi de l'enregistrement sur ton compte…" : "Enregistrement…" }; renderSheet();
+  S.sheetMsg = { t: S.cloud ? "Envoi de l'enregistrement à la troupe…" : "Enregistrement…" }; renderSheet();
   try { await saveAudio(b, blob); S.sheetMsg = null; } catch (e) { S.sheetMsg = { err: true, t: errText(e) }; }
   render();
 }
@@ -961,6 +972,15 @@ document.addEventListener("click", async e => {
     case "sample": await newPlay("Le Médecin malgré lui (exemple)", parseText(SAMPLE)); render(); break;
     case "migrate": el.disabled = true; await migrate(); break;
     case "export": await exportPlay(); break;
+    case "goLocal": LS.set("mode", "local"); S.msg = null; await enterLocal(); break;
+    case "goLogin": LS.set("mode", "cloud"); halt(); S.msg = null; S.auth = "login"; render(); break;
+    case "logout": await signOut(); break;
+    case "pwToggle": S.pwOpen = !S.pwOpen; render(); break;
+    case "pwSave": {
+      const pw = $("#newPass").value; if (pw.length < 8) { S.msg = { err: true, t: "Le mot de passe doit faire au moins 8 caractères." }; render(); return; }
+      const r = await sb.auth.updateUser({ password: pw });
+      S.pwOpen = false; S.msg = r.error ? { err: true, t: errText(r.error) } : { t: "Mot de passe changé." }; render(); break;
+    }
     case "paste": S.paste = !S.paste; S.msg = null; render(); break;
     case "parsePaste": {
       const t = $("#pasteTxt").value.trim(); if (!t) return;
@@ -1030,6 +1050,11 @@ document.addEventListener("click", async e => {
 document.addEventListener("change", async e => {
   const t = e.target, p = S.play;
   if (t.id === "playSel") { S.msg = null; await selectPlay(S.plays.find(x => x.id === t.value)); }
+  else if (t.id === "myName") {
+    const n = t.value.trim().slice(0, 40); U.me.name = n; U.names[U.me.id] = { id: U.me.id, name: n }; setChip();
+    sb.from("profiles").upsert({ id: U.me.id, name: n }).then(r => { if (r.error) { S.msg = { err: true, t: errText(r.error) }; render(); } });
+    render();
+  }
   else if (t.id === "titleIn") { p.title = t.value.trim() || "Sans titre"; savePlay(); render(); }
   else if (t.id === "voixSel") { S.voixWho = t.value; S.sheetIdx = -1; render(); }
   else if (t.id === "meSel") { p.settings.me = t.value; saveSettings(); render(); }
@@ -1054,6 +1079,18 @@ document.addEventListener("change", async e => {
     } catch (err) { S.msg = { err: true, t: "Impossible de lire ce fichier : " + (err.message || err) }; }
     render();
   }
+});
+document.addEventListener("submit", async e => {
+  if (e.target.id !== "loginForm") return;
+  e.preventDefault();
+  const email = $("#loginEmail").value.trim(), password = $("#loginPass").value;
+  if (!sb) { S.msg = { err: true, t: "Impossible de joindre le serveur. Vérifie ta connexion Internet puis recharge la page." }; render(); return; }
+  S.loggingIn = true; S.msg = null; render();
+  const r = await sb.auth.signInWithPassword({ email, password }).catch(err => ({ error: err }));
+  S.loggingIn = false;
+  if (r.error || !r.data || !r.data.session) { S.msg = { err: true, t: errText(r.error) }; render(); $("#loginEmail").value = email; return; }
+  LS.set("email", email); LS.set("mode", "cloud");
+  await startCloud(r.data.session);
 });
 document.addEventListener("focusout", () => setTimeout(() => { if (softPending) softRender(); }, 0));
 document.addEventListener("input", e => { if (e.target.id === "spw") { S.play.settings.spw = +e.target.value; } });
@@ -1091,23 +1128,24 @@ async function importJSON(f) {
 }
 
 /* ---------- boot ---------- */
-async function startCloud() {
+async function startCloud(session) {
+  const user = session.user;
+  U.me = { id: user.id, email: user.email, name: "" };
+  halt(); $("#stage").hidden = true;
+  S.auth = null; S.cloud = true; S.cloudReady = false; S.booting = false; S.plays = []; S.play = null; S.rec = new Set(); S.msg = null;
+  S.local = S.localPlays.filter(p => !LS.get("migrated:" + p.id) && (!/\(exemple\)/.test(p.title) || [...S.localRec].some(k => k.startsWith(p.id + ":"))));
+  render();
   try {
-    if (!window.claude || !window.claude.use) return false;
-    const db = await window.claude.use("db"); if (!db) return false;
-    const assets = await window.claude.use("assets").catch(() => null);
-    C.db = db; C.assets = assets; if (!assets) U.canUpload = false;
-    await startUser();
-    halt(); $("#stage").hidden = true;
-    S.cloud = true; S.cloudReady = false; S.booting = false; S.plays = []; S.play = null; S.rec = new Set(); S.msg = null;
-    S.local = S.localPlays.filter(p => !LS.get("migrated:" + p.id) && (!/\(exemple\)/.test(p.title) || [...S.localRec].some(k => k.startsWith(p.id + ":"))));
-    render();
-    C.unsubPlays = db.collection("plays").onSnapshot(snap => { onPlays(snap); }, () => { S.msg = { err: true, t: "La connexion à ton compte s'est interrompue. Recharge la page." }; render(); });
-    return true;
-  } catch (e) { return false; }
+    const prof = chk(await sb.from("profiles").select("name").eq("id", user.id).maybeSingle());
+    U.me.name = (prof && prof.name) || ""; U.names[user.id] = { id: user.id, name: U.me.name };
+    chk(await sb.from("prefs").select("play_id,settings")).forEach(r => U.prefs[r.play_id] = r.settings);
+    setChip();
+    await loadPlays();
+  } catch (e) { S.cloudReady = true; S.msg = { err: true, t: errText(e) }; render(); }
+  if (!C.chPlays) C.chPlays = sb.channel("plays").on("postgres_changes", { event: "*", schema: "public", table: "plays" }, () => { if (S.cloud) loadPlays().catch(() => {}); }).subscribe();
 }
 async function enterLocal() {
-  S.booting = false; S.cloud = false;
+  S.booting = false; S.cloud = false; S.auth = null; setChip();
   S.plays = S.localPlays; S.rec = S.localRec;
   if (!S.plays.length) {
     await newPlay("Le Médecin malgré lui (exemple)", parseText(SAMPLE));
@@ -1115,15 +1153,26 @@ async function enterLocal() {
   } else { const last = LS.get("last"); S.play = S.plays.find(p => p.id === last) || S.plays[0]; }
   render();
 }
+async function signOut() {
+  halt(); $("#stage").hidden = true;
+  if (C.chPlays) { sb.removeChannel(C.chPlays); C.chPlays = null; }
+  if (C.chVoices) { sb.removeChannel(C.chVoices); C.chVoices = null; }
+  await sb.auth.signOut().catch(() => {});
+  Object.assign(S, { cloud: false, cloudReady: false, plays: [], play: null, rec: new Set(), msg: null, auth: "login" });
+  U.me = null; U.prefs = {}; C.urls.clear(); setChip(); render();
+}
 (async () => {
   render();
   await DB.open();
   S.localPlays = ((await DB.all("plays")) || []).sort((a, b) => (b.created || 0) - (a.created || 0));
   S.localPlays.forEach(p => p.settings = settingsFor(p.id, p.settings));
   S.localRec = new Set(((await DB.keys("audio")) || []).map(String));
-  const cloud = startCloud();
-  const first = await Promise.race([cloud, new Promise(r => setTimeout(() => r("wait"), 2500))]);
-  if (first !== true && !S.cloud) await enterLocal();
+  if (!window.supabase || !window.supabase.createClient) { S.offlineLib = true; if (LS.get("mode") === "local") return enterLocal(); S.booting = false; S.auth = "login"; render(); return; }
+  sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
+  const { data } = await sb.auth.getSession().catch(() => ({ data: {} }));
+  if (data && data.session) return startCloud(data.session);
+  if (LS.get("mode") === "local") return enterLocal();
+  S.booting = false; S.auth = "login"; render();
 })();
 </script>
 
