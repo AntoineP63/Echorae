@@ -151,9 +151,12 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .stage{position:fixed;inset:0;z-index:40;background:var(--stage);color:var(--stage-ink);display:grid;grid-template-rows:auto 1fr auto;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
 .stage .top{display:flex;justify-content:space-between;align-items:center;padding-block:12px;gap:10px;font-size:12px;color:var(--stage-muted);letter-spacing:.08em;text-transform:uppercase}
 .stage .top .scene{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.stage .mid{display:flex;flex-direction:column;justify-content:center;gap:22px;max-width:680px;width:100%;margin:0 auto;overflow:auto;min-height:0}
-.prev{font-family:var(--f-script);font-size:17px;color:var(--stage-muted);line-height:1.3;max-height:5.2em;overflow:hidden}
-.cur{font-family:var(--f-script);font-size:26px;line-height:1.3;overflow-wrap:anywhere}
+.stage .mid{display:flex;flex-direction:column;justify-content:flex-start;gap:18px;padding-block:8px;max-width:680px;width:100%;margin:0 auto;overflow:auto;min-height:0}
+.prev{font-family:var(--f-script);font-size:16px;color:var(--stage-muted);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex:none}
+.stage .mid > :first-child{margin-top:auto}
+.stage .mid > :last-child{margin-bottom:auto}
+.cur{font-family:var(--f-script);font-size:26px;line-height:1.3;overflow-wrap:anywhere;flex:none}
+.cur.long{font-size:21px}
 .cur .who,.prev .who{display:block;margin-bottom:4px;font-size:15px}
 .cur.did{font-style:italic;color:#C9C4B8}
 .cur.head{text-align:center;letter-spacing:.14em;text-transform:uppercase;font-weight:700;font-size:20px}
@@ -172,7 +175,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 </style>
 
 <div id="app">
-  <header><h1>Echorae</h1><span class="ver">v23.10-2</span><span class="play" id="hdrPlay"></span><span class="sync" id="sync"></span><span class="me" id="meChip" hidden></span></header>
+  <header><h1>Echorae</h1><span class="ver">v26.10</span><span class="play" id="hdrPlay"></span><span class="sync" id="sync"></span><span class="me" id="meChip" hidden></span></header>
   <main id="main"><div class="wrap" id="view"></div></main>
   <nav>
     <button data-tab="piece" aria-current="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h7"/></svg>Pièce</button>
@@ -385,7 +388,7 @@ SGANARELLE. Que maudit soit le bec cornu de notaire qui me fit signer ma ruine !
 MARTINE. C'est bien à toi, vraiment, à te plaindre de cette affaire. Devrais-tu être un seul moment sans rendre grâce au Ciel de m'avoir pour ta femme ?`;
 
 /* ---------- state ---------- */
-const DEF = { me: "", hear: "apres", showMine: true, spw: 0.5, tts: true, readDid: false, start: 0 };
+const DEF = { me: "", hear: "apres", showMine: true, spw: 0.5, tts: true, readDid: false, start: 0, useRecDur: true, recMargin: 1.2 };
 const S = { plays: [], play: null, rec: new Set(), tab: "piece", edit: -1, msg: null, paste: false, voixWho: "", sheetIdx: -1, micBlocked: false, renameChar: "",
   cloud: false, cloudReady: false, saving: false, local: [], localPlays: [], localRec: new Set(), sheetMsg: null, booting: true };
 
@@ -764,6 +767,7 @@ function viewVoix() {
         const d = all.filter(b => S.rec.has(key(b))).length;
         return `<option value="${esc(c)}" ${c === S.voixWho ? "selected" : ""}>${esc(c)} — ${d}/${all.length}${c === S.play.settings.me ? " (ton rôle)" : ""}</option>`;
       }).join("")}</select></div>
+    <div class="note">Touche une réplique pour l'enregistrer, l'écouter ou modifier son texte.</div>
     <div class="note">${done} réplique${done > 1 ? "s" : ""} enregistrée${done > 1 ? "s" : ""} sur ${items.length}. Sans enregistrement, la voix de synthèse lit la réplique pendant la répétition.</div>
     ${S.cloud && (!U.canWrite || !U.canUpload) ? `<div class="msg">Tu peux écouter les voix, mais pas en enregistrer. Demande le rôle Éditeur à la personne qui a partagé l'appli.</div>` : ""}
     <div class="row" ${S.cloud && (!U.canWrite || !U.canUpload) ? "hidden" : ""}><button class="btn primary" data-act="recFirst">${done < items.length ? "Enregistrer la suivante" : "Réécouter depuis le début"}</button></div>
@@ -784,7 +788,7 @@ function renderSheet() {
     <div class="row" style="justify-content:space-between"><span class="label" style="${cstyle(b.who)}">${esc(b.who)}</span><button class="btn ghost" data-act="closeSheet">Fermer</button></div>
     ${S.shEdit ? `<textarea id="shText">${esc(b.text)}</textarea>
       <div class="row"><button class="btn primary" data-act="shEditSave">Enregistrer le texte</button><button class="btn ghost" data-act="shEditToggle">Annuler</button></div>`
-    : `<div class="txt">${esc(b.text)}</div>${S.cloud && !U.canWrite ? "" : `<div class="row"><button class="btn ghost" data-act="shEditToggle" style="padding:4px 0">Modifier le texte</button></div>`}`}
+    : `<div class="txt">${esc(b.text)}</div>${S.cloud && !U.canWrite ? "" : `<div class="row"><button class="btn" data-act="shEditToggle">✎ Modifier le texte</button></div>`}`}
     ${S.sheetMsg ? `<div class="msg ${S.sheetMsg.err ? "err" : ""}">${esc(S.sheetMsg.t)}</div>` : ""}
     ${S.cloud && (!U.canWrite || !U.canUpload) ? "" : `${S.micBlocked ? `<div class="msg">Le micro direct n'est pas disponible ici. Enregistre avec le dictaphone de ton téléphone, puis choisis le fichier ci-dessous.</div>` : `<div class="row" style="gap:16px"><button class="recbtn ${recOn ? "on" : ""}" data-act="recToggle" aria-label="${recOn ? "Arrêter" : "Enregistrer"}"><span></span></button>
         <div><div class="timer" id="recTimer">${recOn ? "0:00" : has ? "Enregistrée" : "Prêt"}</div><div class="note">${recOn ? "Touche pour arrêter" : "Touche le bouton rouge pour enregistrer"}</div></div></div>
@@ -877,6 +881,10 @@ function viewRep() {
   </div>
   <div class="card">
     <span class="label">Temps pour ma réplique</span>
+    <label class="toggle">Prendre la durée de ma réplique enregistrée<input type="checkbox" id="useRecDur" ${s.useRecDur ? "checked" : ""}></label>
+    ${s.useRecDur ? `<div class="field"><span class="label">Marge en plus de l'enregistrement</span>
+      <div class="seg">${[[1, "Aucune"], [1.2, "+20 %"], [1.5, "+50 %"], [2, "Double"]].map(([v, l]) => `<button data-act="setNum" data-k="recMargin" data-v="${v}" aria-pressed="${(s.recMargin || 1.2) === v}">${l}</button>`).join("")}</div></div>
+      <span class="note">Quand ta réplique n'est pas enregistrée, le temps est calculé selon sa longueur :</span>` : ""}
     <input type="range" id="spw" min="0.3" max="1" step="0.05" value="${s.spw}">
     <div class="row" style="justify-content:space-between"><span class="note">Rapide</span><span class="note" style="font-variant-numeric:tabular-nums">${s.spw.toFixed(2)} s par mot · 10 mots ≈ ${Math.round(10 * s.spw + 0.8)} s</span><span class="note">Lent</span></div>
     <span class="note">Pendant ton tour, « J'ai fini » passe à la suite sans attendre.</span>
@@ -941,7 +949,7 @@ async function playURL(url, tok, revoke) {
   await new Promise(r => {
     player.onended = r; player.onerror = r; player.src = url;
     tok.cancels.push(() => { player.pause(); r(); });
-    player.play().catch(r);
+    player.play().catch(() => setTimeout(() => player.play().catch(r), 250));
   });
   if (revoke) URL.revokeObjectURL(url);
 }
@@ -955,12 +963,41 @@ async function speak(text, who, tok, rate = 1) {
   const i = chars().indexOf(who);
   if (frVoices.length) u.voice = frVoices[(i < 0 ? 0 : i) % frVoices.length];
   u.pitch = i < 0 ? 1 : [1, 0.8, 1.2, 0.9, 1.1][i % 5];
+  const ss = window.speechSynthesis;
+  if (ss.speaking || ss.pending) { ss.cancel(); await sleep(120, tok); if (tok.off) return; }
   await new Promise(r => {
-    const t = setTimeout(r, est * 1.6); const done = () => { clearTimeout(t); r(); };
-    u.onend = done; u.onerror = done;
-    tok.cancels.push(() => { speechSynthesis.cancel(); done(); });
-    speechSynthesis.cancel(); speechSynthesis.speak(u);
+    let ended = false, started = false, iv = null, t = null;
+    const done = () => { if (ended) return; ended = true; clearTimeout(t); clearInterval(iv); r(); };
+    t = setTimeout(done, est * 2);
+    u.onstart = () => { started = true; };
+    u.onend = () => { if (!ss.speaking && !ss.pending) done(); };
+    u.onerror = e => { if (e && (e.error === "interrupted" || e.error === "canceled") && (ss.speaking || ss.pending)) return; if (started || !ss.speaking) done(); };
+    tok.cancels.push(() => { ss.cancel(); done(); });
+    ss.speak(u);
+    const t0 = Date.now();
+    iv = setInterval(() => {
+      if (ss.speaking || ss.pending) { started = true; return; }
+      if (started || Date.now() - t0 > 2500) done();
+    }, 200);
   });
+}
+const DUR = new Map(); let durCtx = null;
+async function recDuration(b) {
+  if (!S.rec.has(key(b))) return null;
+  const k = S.cloud ? C.audio.get(key(b)) : key(b);
+  if (DUR.has(k)) return DUR.get(k);
+  const pr = (async () => {
+    try {
+      const url = await audioURL(b); if (!url) return null;
+      const buf = await (await fetch(url)).arrayBuffer();
+      if (!S.cloud) URL.revokeObjectURL(url);
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
+      durCtx = durCtx || new AC();
+      const ab = await new Promise((res, rej) => { const p = durCtx.decodeAudioData(buf, res, rej); if (p && p.then) p.then(res, rej); });
+      return ab.duration && isFinite(ab.duration) ? ab.duration : null;
+    } catch (e) { return null; }
+  })();
+  DUR.set(k, pr); return pr;
 }
 async function voice(b, tok) {
   const url = await audioURL(b);
@@ -997,7 +1034,7 @@ function drawStage(extra = {}) {
   else if (b.type === "didasc") cur = `<div class="cur did">${esc(b.text)}</div>`;
   else {
     const hide = mine && !s.showMine && RUN.phase === "turn";
-    cur = `<div class="cur"><span class="who" style="${cstyle(b.who)}">${esc(b.who)}</span>${hide ? '<span class="hidden-text">· · · · ·</span>' : esc(b.text)}</div>`;
+    cur = `<div class="cur${words(b.text) > 45 ? " long" : ""}"><span class="who" style="${cstyle(b.who)}">${esc(b.who)}</span>${hide ? '<span class="hidden-text">· · · · ·</span>' : esc(b.text)}</div>`;
   }
   let cue = "";
   if (mine && RUN.phase === "turn") cue = `<div class="cue">À toi</div><div class="bar"><i id="turnBar"></i></div><button class="done-btn" data-act="doneTurn">J'ai fini</button>`;
@@ -1012,7 +1049,9 @@ function drawStage(extra = {}) {
     </div>`;
 }
 async function myTurn(b, tok) {
-  const dur = Math.max(2, words(b.text) * S.play.settings.spw) + 0.8;
+  const s = S.play.settings;
+  let dur = Math.max(2, words(b.text) * s.spw) + 0.8;
+  if (s.useRecDur) { const d = await recDuration(b); if (tok.off) return; if (d) dur = d * (s.recMargin || 1.2) + 0.8; }
   RUN.phase = "turn"; drawStage();
   const bar = $("#turnBar");
   if (bar) { bar.style.transition = "none"; bar.style.width = "0"; void bar.offsetWidth; bar.style.transition = `width ${dur}s linear`; bar.style.width = "100%"; }
@@ -1131,6 +1170,7 @@ document.addEventListener("click", async e => {
     }
     case "set": p.settings[el.dataset.k] = el.dataset.v; saveSettings(); render(); break;
     case "go": startRehearsal(); break;
+    case "setNum": p.settings[el.dataset.k] = +el.dataset.v; saveSettings(); render(); break;
     case "tlStep": setTlPos(+$("#tlRange").value + +el.dataset.d); break;
     case "tlMine": {
       const L = spokenIdx(), d = +el.dataset.d; let pos = +$("#tlRange").value + d;
@@ -1169,6 +1209,7 @@ document.addEventListener("change", async e => {
   else if (t.id === "voixSel") { S.voixWho = t.value; S.sheetIdx = -1; render(); }
   else if (t.id === "meSel") { p.settings.me = t.value; saveSettings(); render(); }
   else if (t.id === "showMine" || t.id === "tts" || t.id === "readDid") { p.settings[t.id] = t.checked; saveSettings(); }
+  else if (t.id === "useRecDur") { p.settings.useRecDur = t.checked; saveSettings(); render(); }
   else if (t.id === "startSel" && t.value !== "") {
     const L = spokenIdx(), hi = +t.value; let pos = L.findIndex(j => j >= hi); if (pos < 0) pos = 0;
     setTlPos(pos); t.value = "";
