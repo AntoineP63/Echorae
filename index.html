@@ -175,7 +175,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 </style>
 
 <div id="app">
-  <header><h1>Echorae</h1><span class="ver">v26.10</span><span class="play" id="hdrPlay"></span><span class="sync" id="sync"></span><span class="me" id="meChip" hidden></span></header>
+  <header><h1>Echorae</h1><span class="ver">v26.10-2</span><span class="play" id="hdrPlay"></span><span class="sync" id="sync"></span><span class="me" id="meChip" hidden></span></header>
   <main id="main"><div class="wrap" id="view"></div></main>
   <nav>
     <button data-tab="piece" aria-current="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h7"/></svg>Pièce</button>
@@ -192,6 +192,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const uid = () => Math.random().toString(36).slice(2, 10);
+const withTimeout = (p, ms, label) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout:" + label)), ms))]);
 const words = t => (t || "").split(/\s+/).filter(Boolean).length;
 const HUES = [8, 205, 140, 280, 38, 330, 95, 240, 175, 20];
 
@@ -203,7 +204,8 @@ const DB = {
       this.db = await new Promise((res, rej) => {
         const r = indexedDB.open("souffleur", 1);
         r.onupgradeneeded = () => { const d = r.result; d.createObjectStore("plays", { keyPath: "id" }); d.createObjectStore("audio"); };
-        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); r.onblocked = () => rej(new Error("blocked"));
+        setTimeout(() => rej(new Error("timeout")), 4000);
       });
     } catch (e) { this.db = null; }
   },
@@ -431,6 +433,7 @@ function errText(e) {
   if (/relation .* does not exist|could not find the table/i.test(m)) return "Le serveur n'est pas encore préparé : exécute le script echorae-supabase.sql dans Supabase.";
   if (/bucket not found/i.test(m)) return "Le stockage des voix n'existe pas : exécute le script echorae-supabase.sql dans Supabase.";
   if (/payload too large|exceeded the maximum/i.test(m)) return "Ce fichier est trop gros pour le stockage gratuit (50 Mo maximum).";
+  if (/^timeout/.test(m)) return "Le serveur ne répond pas. Vérifie ta connexion Internet, puis touche « Réessayer ».";
   if (/failed to fetch|network/i.test(m)) return "Pas de connexion Internet, ou le serveur est en pause (voir supabase.com → Restore).";
   return m || "Erreur inconnue.";
 }
@@ -471,7 +474,7 @@ async function cloudWrite(p) {
   p.pending = false; S.saving = false; setStatus();
 }
 async function loadParts(p) {
-  const row = chk(await sb.from("plays").select("blocks,updated_at").eq("id", p.id).single());
+  const row = chk(await withTimeout(sb.from("plays").select("blocks,updated_at").eq("id", p.id).single(), 20000, "serveur"));
   p.blocks = row.blocks || []; p.updated = Date.parse(row.updated_at); p.loadedAt = p.updated;
 }
 async function refreshVoices(p) {
@@ -493,7 +496,7 @@ function watchAudio(p) {
     .subscribe();
 }
 async function loadPlays() {
-  const rows = chk(await sb.from("plays").select("id,title,created_at,updated_at,created_by").order("created_at", { ascending: false }));
+  const rows = chk(await withTimeout(sb.from("plays").select("id,title,created_at,updated_at,created_by").order("created_at", { ascending: false }), 15000, "serveur"));
   const old = new Map(S.plays.map(p => [p.id, p]));
   const list = rows.map(r => {
     const o = old.get(r.id), m = { title: r.title, created: Date.parse(r.created_at), updated: Date.parse(r.updated_at), created_by: r.created_by };
@@ -629,8 +632,10 @@ function render() {
   const v = $("#view");
   document.querySelector("nav").hidden = !!S.auth;
   if (S.auth === "login" && !S.booting) { v.innerHTML = viewLogin(); renderSheet(); return; }
-  if (S.booting || (S.cloud && !S.cloudReady)) { v.innerHTML = `<div class="card"><p class="note">Chargement de tes pièces…</p></div>`; renderSheet(); return; }
-  if (S.play && !S.play.blocks) { v.innerHTML = `<div class="card"><p class="note">Chargement de « ${esc(S.play.title)} »…</p></div>`; renderSheet(); return; }
+  const retry = `<div class="row" id="slowBox" hidden><span class="note">C'est plus long que prévu.</span><button class="btn" data-act="reload">Réessayer</button>${S.cloud ? `<button class="btn ghost" data-act="logout">Se déconnecter</button>` : ""}</div>`;
+  const slow = () => { clearTimeout(render.slowT); render.slowT = setTimeout(() => { const x = $("#slowBox"); if (x) x.hidden = false; }, 10000); };
+  if (S.booting || (S.cloud && !S.cloudReady)) { v.innerHTML = `<div class="card"><p class="note">Chargement de tes pièces…</p>${retry}${S.msg ? `<div class="msg ${S.msg.err ? "err" : ""}">${esc(S.msg.t)}</div>` : ""}</div>`; renderSheet(); slow(); return; }
+  if (S.play && !S.play.blocks) { v.innerHTML = `<div class="card"><p class="note">Chargement de « ${esc(S.play.title)} »…</p>${retry}${S.msg ? `<div class="msg ${S.msg.err ? "err" : ""}">${esc(S.msg.t)}</div>` : ""}</div>`; renderSheet(); slow(); return; }
   v.innerHTML = S.tab === "piece" ? viewPiece() : S.tab === "voix" ? viewVoix() : viewRep();
   if (S.tab === "rep" && $("#tlRange")) { drawTimeline(); tlPreview(+$("#tlRange").value); }
   renderSheet();
@@ -1107,6 +1112,7 @@ document.addEventListener("click", async e => {
     case "goLocal": LS.set("mode", "local"); S.msg = null; await enterLocal(); break;
     case "goLogin": LS.set("mode", "cloud"); halt(); S.msg = null; S.auth = "login"; render(); break;
     case "logout": await signOut(); break;
+    case "reload": location.reload(); break;
     case "pwToggle": S.pwOpen = !S.pwOpen; render(); break;
     case "pwSave": {
       const pw = $("#newPass").value; if (pw.length < 8) { S.msg = { err: true, t: "Le mot de passe doit faire au moins 8 caractères." }; render(); return; }
@@ -1297,7 +1303,7 @@ async function startCloud(session) {
   S.local = S.localPlays.filter(p => !LS.get("migrated:" + p.id) && (!/\(exemple\)/.test(p.title) || [...S.localRec].some(k => k.startsWith(p.id + ":"))));
   render();
   try {
-    const prof = chk(await sb.from("profiles").select("name").eq("id", user.id).maybeSingle());
+    const prof = chk(await withTimeout(sb.from("profiles").select("name").eq("id", user.id).maybeSingle(), 15000, "serveur"));
     U.me.name = (prof && prof.name) || ""; U.names[user.id] = { id: user.id, name: U.me.name };
     chk(await sb.from("prefs").select("play_id,settings")).forEach(r => U.prefs[r.play_id] = r.settings);
     setChip();
@@ -1329,8 +1335,8 @@ async function signOut() {
   S.localPlays.forEach(p => p.settings = settingsFor(p.id, p.settings));
   S.localRec = new Set(((await DB.keys("audio")) || []).map(String));
   if (!window.supabase || !window.supabase.createClient) { S.offlineLib = true; if (LS.get("mode") === "local") return enterLocal(); S.booting = false; S.auth = "login"; render(); return; }
-  sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
-  const { data } = await sb.auth.getSession().catch(() => ({ data: {} }));
+  sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, lock: async (name, timeout, fn) => fn() } });
+  const { data } = await withTimeout(sb.auth.getSession(), 8000, "session").catch(() => ({ data: {} }));
   if (data && data.session) return startCloud(data.session);
   if (LS.get("mode") === "local") return enterLocal();
   S.booting = false; S.auth = "login"; render();
