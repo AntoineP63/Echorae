@@ -72,6 +72,11 @@ input[type=email],input[type=password]{font:15px var(--f-ui);color:var(--ink);ba
 .tl-prev.mine{border-color:var(--accent)}
 .stepper{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .stepper .btn{justify-content:center;padding:8px 4px;font-size:13px}
+.lockind{all:unset;font:500 11px var(--f-ui);letter-spacing:.02em;text-transform:none;white-space:nowrap;padding:3px 8px;border-radius:999px;border:1px solid #333A48}
+.lockind.ok{color:var(--lamp);border-color:transparent}
+.lockind.warn{color:#F2847C;border-color:#F2847C;cursor:pointer}
+.lockind:focus-visible{outline:2px solid var(--lamp);outline-offset:2px}
+.lockhelp{font:14px/1.45 var(--f-ui);color:var(--stage-ink);background:#1D222D;border:1px solid #333A48;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;max-width:680px;margin:0 auto 6px}
 .stage-did{font-family:var(--f-script);font-style:italic;font-size:18px;color:#C9C4B8;line-height:1.3}
 header .play{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 main{overflow-y:auto;overflow-x:hidden;padding-block:14px 120px;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
@@ -121,6 +126,8 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .who{font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:.82em;margin-right:.35em}
 .b-did .who{font-style:normal}
 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-left:6px;vertical-align:middle}
+.ins{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.ins .btn{justify-content:center;padding:8px 6px;font-size:13px}
 .editor{font-family:var(--f-ui);font-size:14px;background:var(--bg);border:1px solid var(--accent);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px}
 .sel{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
 
@@ -175,7 +182,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 </style>
 
 <div id="app">
-  <header><h1>Echorae</h1><span class="ver">v26.10-2</span><span class="play" id="hdrPlay"></span><span class="sync" id="sync"></span><span class="me" id="meChip" hidden></span></header>
+  <header><h1>Echorae</h1><span class="ver">v10.11-3</span><span class="play" id="hdrPlay"></span><span class="sync" id="sync"></span><span class="me" id="meChip" hidden></span></header>
   <main id="main"><div class="wrap" id="view"></div></main>
   <nav>
     <button data-tab="piece" aria-current="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h7"/></svg>Pièce</button>
@@ -390,7 +397,7 @@ SGANARELLE. Que maudit soit le bec cornu de notaire qui me fit signer ma ruine !
 MARTINE. C'est bien à toi, vraiment, à te plaindre de cette affaire. Devrais-tu être un seul moment sans rendre grâce au Ciel de m'avoir pour ta femme ?`;
 
 /* ---------- state ---------- */
-const DEF = { me: "", hear: "apres", showMine: true, spw: 0.5, tts: true, readDid: false, start: 0, useRecDur: true, recMargin: 1.2 };
+const DEF = { me: "", hear: "apres", showMine: true, spw: 0.5, tts: true, readDid: false, start: 0, useRecDur: true, recMargin: 1.2, beep: false, pocket: false, trim: true, gap2: 0 };
 const S = { plays: [], play: null, rec: new Set(), tab: "piece", edit: -1, msg: null, paste: false, voixWho: "", sheetIdx: -1, micBlocked: false, renameChar: "",
   cloud: false, cloudReady: false, saving: false, local: [], localPlays: [], localRec: new Set(), sheetMsg: null, booting: true };
 
@@ -725,7 +732,7 @@ function viewPiece() {
       <input type="text" id="renIn" value="${esc(S.renameChar)}" list="charList">
       <span class="note">Donne le nom d'un autre personnage pour fusionner les deux.</span>
       <div class="row"><button class="btn primary" data-act="renSave">Valider</button><button class="btn ghost" data-act="renCancel">Annuler</button></div></div>` : ""}
-    <span class="note">Touche une ligne du texte pour corriger le personnage, le type ou le texte.</span>
+    <span class="note">Touche une ligne du texte pour la modifier, la supprimer, ou ajouter une réplique ou une didascalie avant ou après.</span>
   </div>
   <datalist id="charList">${cs.map(c => `<option value="${esc(c)}">`).join("")}</datalist>
   <div class="script">`;
@@ -740,6 +747,25 @@ function blockHTML(b, i) {
   if (b.type === "didasc") return `<div class="b-did${sel}" data-act="edit" data-i="${i}">${esc(b.text)}</div>`;
   return `<div class="b-line${sel}" data-act="edit" data-i="${i}"><span class="who" style="${cstyle(b.who)}">${esc(b.who)}.</span>${esc(b.text)}${S.rec.has(key(b)) ? '<span class="dot" title="Voix enregistrée"></span>' : ""}</div>`;
 }
+function speakerNear(i, dir) {
+  const bl = S.play.blocks, me = bl[i];
+  if (me && me.type === "line") {
+    /* une nouvelle réplique après celle de X revient le plus souvent à l'interlocuteur précédent */
+    const scan = d => { for (let j = i + d; j >= 0 && j < bl.length; j += d) if (bl[j].type === "line" && bl[j].who !== me.who) return bl[j].who; return null; };
+    const w = dir > 0 ? scan(-1) || scan(1) : scan(1) || scan(-1);
+    if (w) return w;
+    return me.who;
+  }
+  for (let j = i; j >= 0; j--) if (bl[j].type === "line") return bl[j].who;
+  return chars()[0] || "";
+}
+function insertBlock(i, type, dir) {
+  const p = S.play, nb = { id: uid(), type, who: type === "line" ? speakerNear(i, dir) : "", text: "" };
+  const at = dir > 0 ? i + 1 : i;
+  p.blocks.splice(at, 0, nb);
+  return at;
+}
+function dropEmpty(i) { const b = S.play.blocks[i]; if (b && !b.text.trim()) { S.play.blocks.splice(i, 1); return true; } return false; }
 function editorHTML(b) {
   return `<div class="editor">
     <div class="row">
@@ -752,11 +778,21 @@ function editorHTML(b) {
     <textarea id="edText">${esc(b.text)}</textarea>
     <div class="row">
       <button class="btn primary" data-act="edSave">Enregistrer</button>
+      <button class="btn ghost" data-act="edCancel">${S.edNew ? "Annuler" : "Fermer"}</button>
+      ${S.edNew ? "" : S.edConfirmDel ? `<button class="btn danger" data-act="edDel">Confirmer${S.rec.has(key(b)) ? " (efface aussi la voix)" : ""}</button>` : `<button class="btn danger" data-act="edDel">Supprimer</button>`}
+    </div>
+    ${S.edNew ? "" : `<span class="label">Ajouter</span>
+    <div class="ins">
+      <button class="btn" data-act="ins" data-t="line" data-w="-1">＋ Réplique avant</button>
+      <button class="btn" data-act="ins" data-t="line" data-w="1">＋ Réplique après</button>
+      <button class="btn" data-act="ins" data-t="didasc" data-w="-1">＋ Didascalie avant</button>
+      <button class="btn" data-act="ins" data-t="didasc" data-w="1">＋ Didascalie après</button>
+    </div>
+    <span class="label">Découper</span>
+    <div class="row">
       <button class="btn" data-act="edSplit" title="Coupe au curseur">Couper au curseur</button>
       <button class="btn" data-act="edMerge">Joindre au précédent</button>
-      <button class="btn danger" data-act="edDel">Supprimer</button>
-      <button class="btn ghost" data-act="edCancel">Fermer</button>
-    </div></div>`;
+    </div>`}</div>`;
 }
 
 function viewVoix() {
@@ -793,7 +829,12 @@ function renderSheet() {
     <div class="row" style="justify-content:space-between"><span class="label" style="${cstyle(b.who)}">${esc(b.who)}</span><button class="btn ghost" data-act="closeSheet">Fermer</button></div>
     ${S.shEdit ? `<textarea id="shText">${esc(b.text)}</textarea>
       <div class="row"><button class="btn primary" data-act="shEditSave">Enregistrer le texte</button><button class="btn ghost" data-act="shEditToggle">Annuler</button></div>`
-    : `<div class="txt">${esc(b.text)}</div>${S.cloud && !U.canWrite ? "" : `<div class="row"><button class="btn" data-act="shEditToggle">✎ Modifier le texte</button></div>`}`}
+    : `<div class="txt">${esc(b.text)}</div>${S.cloud && !U.canWrite ? "" : `<div class="row">
+        <button class="btn" data-act="shEditToggle">✎ Modifier le texte</button>
+        <button class="btn" data-act="shAdd" data-t="line">＋ Réplique après</button>
+        <button class="btn" data-act="shAdd" data-t="didasc">＋ Didascalie après</button>
+        <button class="btn danger" data-act="shDel">${S.shConfirmDel ? "Confirmer la suppression" + (has ? " (et la voix)" : "") : "Supprimer la réplique"}</button>
+      </div>`}`}
     ${S.sheetMsg ? `<div class="msg ${S.sheetMsg.err ? "err" : ""}">${esc(S.sheetMsg.t)}</div>` : ""}
     ${S.cloud && (!U.canWrite || !U.canUpload) ? "" : `${S.micBlocked ? `<div class="msg">Le micro direct n'est pas disponible ici. Enregistre avec le dictaphone de ton téléphone, puis choisis le fichier ci-dessous.</div>` : `<div class="row" style="gap:16px"><button class="recbtn ${recOn ? "on" : ""}" data-act="recToggle" aria-label="${recOn ? "Arrêter" : "Enregistrer"}"><span></span></button>
         <div><div class="timer" id="recTimer">${recOn ? "0:00" : has ? "Enregistrée" : "Prêt"}</div><div class="note">${recOn ? "Touche pour arrêter" : "Touche le bouton rouge pour enregistrer"}</div></div></div>
@@ -899,6 +940,19 @@ function viewRep() {
     <label class="toggle">Lire les didascalies à voix haute<input type="checkbox" id="readDid" ${s.readDid ? "checked" : ""}></label>
   </div>
   <div class="card">
+    <span class="label">Enchaînement des répliques</span>
+    <div class="seg">${[[0, "Collé"], [0.25, "Rapide"], [0.6, "Normal"], [1.2, "Lent"]].map(([v, l]) => `<button data-act="setNum" data-k="gap2" data-v="${v}" aria-pressed="${(+s.gap2 || 0) === v}">${l}</button>`).join("")}</div>
+    <label class="toggle">Couper les silences au début et à la fin des enregistrements<input type="checkbox" id="trim" ${s.trim ? "checked" : ""}></label>
+    <span class="note">« Collé » : le dernier mot d'une réplique enregistrée touche le premier de la suivante. Les blancs du dictaphone avant et après chaque réplique ne sont plus joués. Le temps pour ta réplique se base aussi sur la partie parlée.</span>
+  </div>
+  <div class="card">
+    <span class="label">Écran</span>
+    <p class="note" style="margin:0">Pendant la répétition, Echorae empêche l'écran de se mettre en veille. Désactive l'économiseur de batterie : il peut bloquer cette fonction.</p>
+    <label class="toggle">Mode écran éteint (téléphone en poche)<input type="checkbox" id="pocket" ${s.pocket ? "checked" : ""}></label>
+    ${s.pocket ? `<span class="note">Écran éteint, tes voix enregistrées continuent normalement. La voix de synthèse peut s'arrêter sur certains téléphones : enregistre les répliques des autres pour ce mode. Pause et réplique suivante sont disponibles sur l'écran verrouillé. Dans ce mode, l'enchaînement est un peu moins serré.</span>` : ""}
+    <label class="toggle">Bip quand c'est à moi<input type="checkbox" id="beep" ${s.beep ? "checked" : ""}></label>
+  </div>
+  <div class="card">
     <span class="label">Commencer à</span>
     <div class="tl"><canvas id="tlCanvas" aria-hidden="true"></canvas><input type="range" id="tlRange" min="0" max="${Math.max(0, L.length - 1)}" step="1" value="${pos}" aria-label="Position de départ dans la pièce"></div>
     <div class="tl-legend"><span><i style="background:var(--accent)"></i>Mes répliques</span><span><i style="background:var(--line)"></i>Les autres</span><span><i style="background:var(--muted);width:2px"></i>Scènes</span></div>
@@ -950,11 +1004,26 @@ const player = new Audio();
 const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
 function newTok() { return { off: false, cancels: [], cancel() { this.off = true; this.cancels.splice(0).forEach(f => f()); } }; }
 function sleep(ms, tok) { return new Promise(r => { const t = setTimeout(r, ms); tok.cancels.push(() => { clearTimeout(t); r(); }); }); }
-async function playURL(url, tok, revoke) {
+/* seg = {start, end} en secondes : ne joue que la partie parlée de l'enregistrement. */
+async function playURL(url, tok, revoke, seg) {
   await new Promise(r => {
-    player.onended = r; player.onerror = r; player.src = url;
-    tok.cancels.push(() => { player.pause(); r(); });
-    player.play().catch(() => setTimeout(() => player.play().catch(r), 250));
+    let fin = false, t = null;
+    const done = () => { if (fin) return; fin = true; clearTimeout(t); player.ontimeupdate = null; player.onloadedmetadata = null; r(); };
+    player.onended = done; player.onerror = done;
+    tok.cancels.push(() => { player.pause(); done(); });
+    const armEnd = () => {
+      if (!seg || !seg.end) return;
+      const left = () => seg.end - (player.currentTime || 0);
+      player.ontimeupdate = () => { if (left() <= 0.03) { player.pause(); done(); } };
+      t = setTimeout(() => { player.pause(); done(); }, Math.max(0, left()) * 1000 + 60);
+    };
+    const go = () => {
+      if (seg && seg.start > 0.05) { try { player.currentTime = seg.start; } catch (e) {} }
+      player.play().then(armEnd, () => setTimeout(() => player.play().then(armEnd, done), 250));
+    };
+    player.src = url;
+    if (seg && seg.start > 0.05) player.onloadedmetadata = () => { player.onloadedmetadata = null; go(); };
+    else go();
   });
   if (revoke) URL.revokeObjectURL(url);
 }
@@ -983,33 +1052,94 @@ async function speak(text, who, tok, rate = 1) {
     iv = setInterval(() => {
       if (ss.speaking || ss.pending) { started = true; return; }
       if (started || Date.now() - t0 > 2500) done();
-    }, 200);
+    }, 80);
   });
 }
-const DUR = new Map(); let durCtx = null;
-async function recDuration(b) {
-  if (!S.rec.has(key(b))) return null;
-  const k = S.cloud ? C.audio.get(key(b)) : key(b);
-  if (DUR.has(k)) return DUR.get(k);
-  const pr = (async () => {
+/* ---------- lecture enchaînée (Web Audio) ----------
+   Les enregistrements sont décodés à l'avance ; chaque réplique est programmée pour démarrer
+   exactement à la fin de la précédente (SCHED.at), sans le temps de chargement d'un lecteur audio. */
+let durCtx = null;
+const BUF = new Map();   /* clé audio -> Promise<AudioBuffer|null>, 12 derniers gardés */
+const ANA = new Map();   /* clé audio -> {dur, start, end, speech} */
+const SCHED = { at: 0 };
+function actx() { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null; durCtx = durCtx || new AC(); return durCtx; }
+function audioKey(b) { return S.cloud ? C.audio.get(key(b)) : key(b); }
+function getBuffer(b) {
+  if (!S.rec.has(key(b))) return Promise.resolve(null);
+  const k = audioKey(b); if (!k) return Promise.resolve(null);
+  if (BUF.has(k)) { const p = BUF.get(k); BUF.delete(k); BUF.set(k, p); return p; }
+  const p = (async () => {
     try {
       const url = await audioURL(b); if (!url) return null;
       const buf = await (await fetch(url)).arrayBuffer();
       if (!S.cloud) URL.revokeObjectURL(url);
-      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
-      durCtx = durCtx || new AC();
-      const ab = await new Promise((res, rej) => { const p = durCtx.decodeAudioData(buf, res, rej); if (p && p.then) p.then(res, rej); });
-      return ab.duration && isFinite(ab.duration) ? ab.duration : null;
+      const ctx = actx(); if (!ctx) return null;
+      return await new Promise((res, rej) => { const q = ctx.decodeAudioData(buf, res, rej); if (q && q.then) q.then(res, rej); });
     } catch (e) { return null; }
   })();
-  DUR.set(k, pr); return pr;
+  BUF.set(k, p); while (BUF.size > 12) BUF.delete(BUF.keys().next().value);
+  return p;
+}
+function analyse(ab) {
+  const sr = ab.sampleRate, win = Math.max(1, Math.round(sr * 0.01)), ch = [];
+  for (let c = 0; c < ab.numberOfChannels; c++) ch.push(ab.getChannelData(c));
+  const rms = [];
+  for (let i = 0; i + win <= ab.length; i += win) {
+    let sum = 0;
+    for (let j = i; j < i + win; j += 2) { let v = 0; for (const d of ch) v += d[j]; v /= ch.length; sum += v * v; }
+    rms.push(Math.sqrt(sum / (win / 2)));
+  }
+  const peak = Math.max(0, ...rms), th = Math.max(peak * 0.05, 0.005);
+  const a = rms.findIndex(v => v > th), z = rms.length - 1 - [...rms].reverse().findIndex(v => v > th);
+  if (a < 0 || peak < 0.002) return { dur: ab.duration, start: 0, end: ab.duration, speech: ab.duration };
+  const start = Math.max(0, a * 0.01 - 0.04), end = Math.min(ab.duration, (z + 1) * 0.01 + 0.06);
+  return { dur: ab.duration, start, end, speech: end - start };
+}
+async function recDuration(b) {
+  const k = audioKey(b); if (!k || !S.rec.has(key(b))) return null;
+  if (ANA.has(k)) return ANA.get(k);
+  const ab = await getBuffer(b); if (!ab) return null;
+  const a = analyse(ab); ANA.set(k, a); return a;
+}
+async function recDurationSecs(b) { const a = await recDuration(b); if (!a) return null; return S.play.settings.trim ? a.speech : a.dur; }
+function waitSched(tok) {
+  if (!durCtx || !SCHED.at) return;
+  const ms = (SCHED.at - durCtx.currentTime) * 1000; SCHED.at = 0;
+  if (ms > 5) return sleep(ms, tok);
+}
+function playBuffer(ab, seg, tok) {
+  const ctx = actx();
+  return new Promise(r => {
+    const src = ctx.createBufferSource(); src.buffer = ab; src.connect(ctx.destination);
+    const off = seg ? seg.start : 0, len = Math.max(0.05, (seg ? seg.end : ab.duration) - off);
+    const when = Math.max(ctx.currentTime + 0.01, SCHED.at || 0);
+    let fin = false, t = null;
+    const done = () => { if (fin) return; fin = true; clearTimeout(t); r(); };
+    src.onended = done;
+    tok.cancels.push(() => { try { src.stop(); } catch (e) {} SCHED.at = 0; done(); });
+    src.start(when, off, len);
+    SCHED.at = when + len;
+    /* rend la main un peu avant la fin : la réplique suivante est programmée pile à SCHED.at */
+    t = setTimeout(done, Math.max(0, (when + len - ctx.currentTime) * 1000 - 150));
+  });
 }
 async function voice(b, tok) {
+  const s = S.play.settings;
+  { const bl = S.play.blocks; let n = 0; for (let j = bl.indexOf(b) + 1; j < bl.length && n < 4; j++) if (bl[j].type === "line") { n++; recDuration(bl[j]); } }
+  if (S.rec.has(key(b)) && !s.pocket && actx()) {
+    const ab = await Promise.race([getBuffer(b), new Promise(r => setTimeout(() => r(null), 3000))]);
+    if (tok.off) return;
+    if (ab) { let a = null; if (s.trim) a = await recDuration(b); if (tok.off) return; return playBuffer(ab, a ? { start: a.start, end: a.end } : null, tok); }
+  }
+  await waitSched(tok); if (tok.off) return;
   const url = await audioURL(b);
-  if (S.cloud) { const bl = S.play.blocks; let n = 0; for (let j = bl.indexOf(b) + 1; j < bl.length && n < 4; j++) if (bl[j].type === "line") { n++; audioURL(bl[j]); } }
   if (tok.off) return;
-  if (url) return playURL(url, tok, !S.cloud);
-  if (S.play.settings.tts) return speak(b.text, b.who, tok);
+  if (url) {
+    let seg = null;
+    if (s.trim) { const a = await Promise.race([recDuration(b), new Promise(r => setTimeout(() => r(null), 1500))]); if (tok.off) return; if (a) seg = { start: a.start, end: a.end }; }
+    return playURL(url, tok, !S.cloud, seg);
+  }
+  if (s.tts) return speak(b.text, b.who, tok);
   return sleep(Math.max(1500, words(b.text) * 380), tok);
 }
 
@@ -1044,7 +1174,9 @@ function drawStage(extra = {}) {
   let cue = "";
   if (mine && RUN.phase === "turn") cue = `<div class="cue">À toi</div><div class="bar"><i id="turnBar"></i></div><button class="done-btn" data-act="doneTurn">J'ai fini</button>`;
   else if (mine && RUN.phase === "model") cue = `<div class="cue" style="color:var(--stage-muted)">${s.hear === "avant" ? "Écoute" : "Correction"}</div>`;
-  st.innerHTML = `<div class="top"><span class="scene">${esc(sceneOf(i))}</span><span style="font-variant-numeric:tabular-nums">${i + 1}/${bl.length}</span></div>
+  mediaInfo(b);
+  st.innerHTML = `<div class="top"><span class="scene">${esc(sceneOf(i))}</span><span id="lockSlot">${lockHTML()}</span><span style="font-variant-numeric:tabular-nums">${i + 1}/${bl.length}</span></div>
+    ${S.lockHelp ? `<div class="lockhelp">Ton téléphone refuse de garder l'écran allumé. C'est presque toujours <b>l'économiseur de batterie</b> : désactive-le pendant la répétition. Sinon, allonge la mise en veille dans Paramètres → Affichage → Délai de mise en veille de l'écran. <button class="done-btn" data-act="lockHelp">Compris</button></div>` : ""}
     <div class="mid">${p && p !== b ? `<div class="prev"><span class="who" style="${cstyle(p.who)}">${esc(p.who)}</span>${esc(p.text)}</div>` : ""}${b.type === "line" ? didsBefore(i).map(t => `<div class="stage-did">${esc(t)}</div>`).join("") : ""}${cue && mine ? cue : ""}${cur}</div>
     <div class="ctrl">
       <button class="cbtn" data-act="rPrev" aria-label="Précédent">${ICON.prev}</button>
@@ -1055,9 +1187,10 @@ function drawStage(extra = {}) {
 }
 async function myTurn(b, tok) {
   const s = S.play.settings;
-  let dur = Math.max(2, words(b.text) * s.spw) + 0.8;
-  if (s.useRecDur) { const d = await recDuration(b); if (tok.off) return; if (d) dur = d * (s.recMargin || 1.2) + 0.8; }
+  let dur = Math.max(1.5, words(b.text) * s.spw) + 0.4;
+  if (s.useRecDur) { const d = await recDurationSecs(b); if (tok.off) return; if (d) dur = d * (s.recMargin || 1.2) + 0.4; }
   RUN.phase = "turn"; drawStage();
+  if (s.beep) { await playURL(beepURL(), tok, false); if (tok.off) return; }
   const bar = $("#turnBar");
   if (bar) { bar.style.transition = "none"; bar.style.width = "0"; void bar.offsetWidth; bar.style.transition = `width ${dur}s linear`; bar.style.width = "100%"; }
   await new Promise(r => { const t = setTimeout(r, dur * 1000); const f = () => { clearTimeout(t); r(); }; RUN.skip = f; tok.cancels.push(f); });
@@ -1066,10 +1199,11 @@ async function myTurn(b, tok) {
 async function step(i, tok) {
   const b = S.play.blocks[i], s = S.play.settings;
   RUN.phase = ""; drawStage();
-  if (b.type === "heading") return sleep(1400, tok);
-  if (b.type === "didasc") return s.readDid && s.tts ? speak(b.text, "", tok, 1.05) : undefined;
+  if (b.type === "heading") { await waitSched(tok); return sleep(s.gap2 > 0.5 ? 1200 : 500, tok); }
+  if (b.type === "didasc") { if (!(s.readDid && s.tts)) return; await waitSched(tok); if (tok.off) return; return speak(b.text, "", tok, 1.05); }
   if (b.who !== s.me && !GROUP.test(b.who)) return voice(b, tok);
   if (s.hear === "avant") { RUN.phase = "model"; drawStage(); await voice(b, tok); if (tok.off) return; }
+  await waitSched(tok); if (tok.off) return;
   await myTurn(b, tok); if (tok.off) return;
   if (s.hear === "apres") { RUN.phase = "model"; drawStage(); await voice(b, tok); }
 }
@@ -1077,17 +1211,94 @@ async function runFrom(i) {
   const tok = newTok(); RUN.tok = tok; RUN.idx = i; RUN.paused = false;
   while (RUN.idx < S.play.blocks.length && !tok.off) {
     await step(RUN.idx, tok); if (tok.off) return;
+    const g = +S.play.settings.gap2 || 0;
+    if (g > 0 && S.play.blocks[RUN.idx].type === "line") {
+      if (SCHED.at && durCtx) SCHED.at += g; else { await sleep(g * 1000, tok); if (tok.off) return; }
+    }
     RUN.idx++;
   }
-  if (!tok.off) { RUN.phase = ""; drawStage(); releaseLock(); }
+  if (!tok.off) { await waitSched(tok); RUN.phase = ""; drawStage(); releaseLock(); }
 }
-function halt() { if (RUN.tok) RUN.tok.cancel(); try { speechSynthesis.cancel(); } catch (e) {} player.pause(); }
-async function lock() { try { RUN.lock = await navigator.wakeLock?.request("screen"); } catch (e) {} }
-function releaseLock() { try { RUN.lock?.release(); } catch (e) {} RUN.lock = null; }
+function halt() { SCHED.at = 0; if (RUN.tok) RUN.tok.cancel(); try { speechSynthesis.cancel(); } catch (e) {} player.pause(); }
+/* Écran allumé : verrou d'écran, redemandé chaque fois qu'Android le retire ; vidéo muette invisible en secours. */
+const NOSLEEP = "data:video/mp4;base64,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";
+let nsVideo = null;
+function startNoSleep() {
+  try {
+    if (!nsVideo) {
+      nsVideo = document.createElement("video");
+      nsVideo.setAttribute("playsinline", ""); nsVideo.setAttribute("aria-hidden", "true");
+      nsVideo.muted = true; nsVideo.loop = true; nsVideo.src = NOSLEEP;
+      nsVideo.style.cssText = "position:fixed;left:0;bottom:0;width:2px;height:2px;opacity:.01;pointer-events:none;z-index:-1";
+      document.body.appendChild(nsVideo);
+    }
+    const p = nsVideo.play(); if (p && p.catch) p.catch(() => {});
+    return true;
+  } catch (e) { return false; }
+}
+function stopNoSleep() { try { nsVideo && nsVideo.pause(); } catch (e) {} }
+async function lock() {
+  if ($("#stage").hidden || document.hidden) return;
+  if (RUN.lock && !RUN.lock.released) return;
+  try {
+    if (!navigator.wakeLock) throw new Error("unsupported");
+    const l = await navigator.wakeLock.request("screen");
+    RUN.lock = l; RUN.lockState = "on"; stopNoSleep();
+    l.addEventListener("release", () => {
+      if (RUN.lock === l) RUN.lock = null;
+      RUN.lockState = "off"; paintLock();
+      if (!$("#stage").hidden && !document.hidden) setTimeout(lock, 300);
+    });
+  } catch (e) { RUN.lock = null; startNoSleep(); RUN.lockState = "fallback"; }
+  paintLock();
+}
+function releaseLock() { const l = RUN.lock; RUN.lock = null; RUN.lockState = ""; try { l && l.release(); } catch (e) {} stopNoSleep(); paintLock(); mediaState("none"); }
+function lockHTML() {
+  if (RUN.lockState === "on") return `<span class="lockind ok" title="L'écran reste allumé pendant la répétition">☀ Écran allumé</span>`;
+  if (RUN.lockState === "fallback") return `<button class="lockind warn" data-act="lockHelp">⚠ Écran : mode secours</button>`;
+  return "";
+}
+function paintLock() { const el = $("#lockSlot"); if (el) el.innerHTML = lockHTML(); }
+
+/* Bip « à toi », généré une fois (utile écran éteint). */
+let BEEP = null;
+function beepURL() {
+  if (BEEP) return BEEP;
+  const sr = 22050, n = Math.round(sr * 0.22), buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const w = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVE"); w(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) { const env = Math.min(1, i / 220, (n - i) / 900); v.setInt16(44 + i * 2, Math.round(Math.sin(2 * Math.PI * 880 * i / sr) * env * 0.45 * 32767), true); }
+  return BEEP = URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+}
+
+/* Commandes sur l'écran verrouillé et dans la barre de notifications. */
+function mediaState(st) { try { if ("mediaSession" in navigator) navigator.mediaSession.playbackState = st; } catch (e) {} }
+function mediaInfo(b) {
+  if (!("mediaSession" in navigator) || !b || typeof MediaMetadata === "undefined") return;
+  try {
+    const mine = b.type === "line" && (b.who === S.play.settings.me || GROUP.test(b.who));
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: b.type === "line" ? (mine && RUN.phase === "turn" ? "À toi — " : "") + b.who + " : " + b.text.slice(0, 80) : b.text.slice(0, 80),
+      artist: S.play.title, album: "Echorae · " + sceneOf(RUN.idx)
+    });
+    mediaState(RUN.paused ? "paused" : "playing");
+  } catch (e) {}
+}
+function mediaHandlers() {
+  if (!("mediaSession" in navigator)) return;
+  const set = (a, f) => { try { navigator.mediaSession.setActionHandler(a, f); } catch (e) {} };
+  set("play", () => { if (!$("#stage").hidden && RUN.paused) runFrom(RUN.idx); });
+  set("pause", () => { if (!$("#stage").hidden && !RUN.paused) { halt(); RUN.paused = true; RUN.phase = ""; drawStage(); mediaState("paused"); } });
+  set("nexttrack", () => { if (!$("#stage").hidden) jump(1); });
+  set("previoustrack", () => { if (!$("#stage").hidden) jump(-1); });
+  set("stop", () => { halt(); RUN.paused = false; $("#stage").hidden = true; releaseLock(); });
+}
 function startRehearsal() {
   player.src = SILENT; player.play().catch(() => {});
+  try { const c = actx(); c && c.resume(); } catch (e) {} SCHED.at = 0;
   try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; speechSynthesis.speak(u); } catch (e) {}
-  $("#stage").hidden = false; lock();
+  $("#stage").hidden = false; RUN.lockState = ""; lock(); mediaHandlers();
   let i = startBlockIdx(); const bl = S.play.blocks;
   while (i > 0 && bl[i - 1].type !== "line") i--;
   runFrom(i);
@@ -1127,12 +1338,22 @@ document.addEventListener("click", async e => {
       S.paste = false; S.msg = { t: `Texte analysé : ${chars().length} personnages, ${blocks.filter(b => b.type === "line").length} répliques. Vérifie les lignes et corrige-les si besoin.` };
       render(); break;
     }
-    case "edit": { if (S.cloud && !U.canWrite) return; const i = +el.dataset.i; S.edit = S.edit === i ? -1 : i; render(); break; }
-    case "edCancel": S.edit = -1; render(); break;
+    case "edit": { if (S.cloud && !U.canWrite) return; const i = +el.dataset.i;
+      if (S.edNew && S.edit >= 0 && S.edit !== i) { const was = S.edit; if (dropEmpty(was)) { S.edit = -1; S.edNew = false; render(); return; } }
+      S.edNew = false; S.edConfirmDel = false; S.edit = S.edit === i ? -1 : i; render(); break; }
+    case "edCancel": if (S.edNew) dropEmpty(S.edit); S.edit = -1; S.edNew = false; S.edConfirmDel = false; render(); break;
     case "edSave": {
       const b = p.blocks[S.edit]; b.type = $("#edType").value; b.who = $("#edWho").value.trim().toUpperCase(); b.text = $("#edText").value.trim();
       if (b.type === "line" && !b.who) { b.type = "didasc"; }
-      S.edit = -1; savePlay(); render(); break;
+      if (!b.text) { if (S.rec.has(key(b))) delAudio(b); p.blocks.splice(S.edit, 1); }
+      S.edit = -1; S.edNew = false; S.edConfirmDel = false; savePlay(); render(); break;
+    }
+    case "ins": {
+      if (S.edit < 0) return;
+      const at = insertBlock(S.edit, el.dataset.t, +el.dataset.w);
+      S.edit = at; S.edNew = true; S.edConfirmDel = false; render();
+      requestAnimationFrame(() => { document.querySelector(".editor")?.scrollIntoView({ block: "center" }); $("#edText")?.focus(); });
+      break;
     }
     case "edSplit": {
       const ta = $("#edText"), pos = ta.selectionStart, b = p.blocks[S.edit];
@@ -1144,7 +1365,10 @@ document.addEventListener("click", async e => {
       prev.text = (prev.text + " " + $("#edText").value.trim()).trim(); if (S.rec.has(key(b))) delAudio(b);
       p.blocks.splice(S.edit, 1); S.edit = S.edit - 1; savePlay(); render(); break;
     }
-    case "edDel": { const b = p.blocks[S.edit]; if (S.rec.has(key(b))) delAudio(b); p.blocks.splice(S.edit, 1); S.edit = -1; savePlay(); render(); break; }
+    case "edDel": {
+      if (!S.edConfirmDel) { S.edConfirmDel = true; render(); return; }
+      const b = p.blocks[S.edit]; if (S.rec.has(key(b))) delAudio(b); p.blocks.splice(S.edit, 1); S.edit = -1; S.edConfirmDel = false; savePlay(); render(); break;
+    }
     case "charRename": if (S.cloud && !U.canWrite) return; S.renameChar = el.dataset.c; render(); break;
     case "renCancel": S.renameChar = ""; render(); break;
     case "renSave": {
@@ -1159,23 +1383,24 @@ document.addEventListener("click", async e => {
       await deletePlay(p); break;
     }
     case "delCancel": S.confirmDel = false; render(); break;
-    case "openRec": S.sheetIdx = +el.dataset.i; S.sheetMsg = null; S.shEdit = false; renderSheet(); break;
+    case "openRec": if (S.shNew) { dropEmpty(S.sheetIdx); S.shNew = false; render(); return; } S.sheetIdx = +el.dataset.i; S.sheetMsg = null; S.shEdit = false; S.shConfirmDel = false; renderSheet(); break;
     case "recFirst": {
       const items = p.blocks.map((b, i) => ({ b, i })).filter(o => o.b.type === "line" && o.b.who === S.voixWho);
       const f = items.find(o => !S.rec.has(key(o.b))) || items[0]; if (f) { S.sheetIdx = f.i; renderSheet(); } break;
     }
-    case "closeSheet": if (REC.mr) REC.mr.stop(); S.sheetIdx = -1; renderSheet(); break;
+    case "closeSheet": if (REC.mr) REC.mr.stop(); if (S.shNew) { dropEmpty(S.sheetIdx); S.shNew = false; S.shEdit = false; S.sheetIdx = -1; render(); break; } S.sheetIdx = -1; S.shConfirmDel = false; renderSheet(); break;
     case "recToggle": if (REC.mr) REC.mr.stop(); else recStart(); break;
     case "playRec": { player.src = SILENT; player.play().catch(() => {}); const url = await audioURL(p.blocks[S.sheetIdx]); if (url) { halt(); playURL(url, newTok(), !S.cloud); } break; }
     case "delRec": { const b = p.blocks[S.sheetIdx]; S.sheetMsg = null; await delAudio(b); render(); break; }
     case "nextRec": {
       if (REC.mr) REC.mr.stop();
-      const n = nextLineIdx(S.sheetIdx, p.blocks[S.sheetIdx].who); S.sheetIdx = n; S.sheetMsg = null; S.shEdit = false; renderSheet();
+      const n = nextLineIdx(S.sheetIdx, p.blocks[S.sheetIdx].who); S.sheetIdx = n; S.sheetMsg = null; S.shEdit = false; S.shConfirmDel = false; renderSheet();
       if (n >= 0) document.querySelector(`.item[data-i="${n}"]`)?.scrollIntoView({ block: "nearest" });
       break;
     }
     case "set": p.settings[el.dataset.k] = el.dataset.v; saveSettings(); render(); break;
     case "go": startRehearsal(); break;
+    case "lockHelp": S.lockHelp = !S.lockHelp; drawStage(); break;
     case "setNum": p.settings[el.dataset.k] = +el.dataset.v; saveSettings(); render(); break;
     case "tlStep": setTlPos(+$("#tlRange").value + +el.dataset.d); break;
     case "tlMine": {
@@ -1189,13 +1414,32 @@ document.addEventListener("click", async e => {
       requestAnimationFrame(() => { const ed = document.querySelector(".editor"); if (ed) { ed.scrollIntoView({ block: "center" }); $("#edText")?.focus(); } });
       break;
     }
-    case "shEditToggle": S.shEdit = !S.shEdit; renderSheet(); if (S.shEdit) $("#shText")?.focus(); break;
+    case "shEditToggle":
+      if (S.shEdit && S.shNew) { dropEmpty(S.sheetIdx); S.sheetIdx = -1; S.shNew = false; S.shEdit = false; render(); break; }
+      S.shEdit = !S.shEdit; S.shConfirmDel = false; renderSheet(); if (S.shEdit) $("#shText")?.focus(); break;
+    case "shAdd": {
+      const i = S.sheetIdx, t = el.dataset.t;
+      if (t === "didasc") {
+        const at = insertBlock(i, "didasc", 1);
+        S.sheetIdx = -1; S.tab = "piece"; S.edit = at; S.edNew = true; render();
+        requestAnimationFrame(() => { document.querySelector(".editor")?.scrollIntoView({ block: "center" }); $("#edText")?.focus(); });
+        break;
+      }
+      const at = insertBlock(i, "line", 1); p.blocks[at].who = S.voixWho || p.blocks[i].who;
+      S.sheetIdx = at; S.shEdit = true; S.shNew = true; S.shConfirmDel = false; S.sheetMsg = null; render();
+      $("#shText")?.focus(); break;
+    }
+    case "shDel": {
+      if (!S.shConfirmDel) { S.shConfirmDel = true; renderSheet(); return; }
+      const b = p.blocks[S.sheetIdx]; if (S.rec.has(key(b))) await delAudio(b);
+      p.blocks.splice(S.sheetIdx, 1); S.sheetIdx = -1; S.shConfirmDel = false; savePlay(); render(); break;
+    }
     case "shEditSave": {
       const b = p.blocks[S.sheetIdx], v = $("#shText").value.trim(); if (!v) return;
-      b.text = v; S.shEdit = false; savePlay(); render(); break;
+      b.text = v; S.shEdit = false; S.shNew = false; savePlay(); render(); break;
     }
     case "rToggle":
-      if (RUN.paused) runFrom(RUN.idx); else { halt(); RUN.paused = true; RUN.phase = ""; drawStage(); }
+      if (RUN.paused) { lock(); try { durCtx && durCtx.resume(); } catch (e) {} runFrom(RUN.idx); } else { halt(); RUN.paused = true; RUN.phase = ""; drawStage(); mediaState("paused"); }
       break;
     case "rNext": jump(1); break;
     case "rPrev": jump(-1); break;
@@ -1215,6 +1459,9 @@ document.addEventListener("change", async e => {
   else if (t.id === "voixSel") { S.voixWho = t.value; S.sheetIdx = -1; render(); }
   else if (t.id === "meSel") { p.settings.me = t.value; saveSettings(); render(); }
   else if (t.id === "showMine" || t.id === "tts" || t.id === "readDid") { p.settings[t.id] = t.checked; saveSettings(); }
+  else if (t.id === "trim") { p.settings.trim = t.checked; saveSettings(); }
+  else if (t.id === "beep") { p.settings.beep = t.checked; saveSettings(); render(); }
+  else if (t.id === "pocket") { p.settings.pocket = t.checked; saveSettings(); render(); }
   else if (t.id === "useRecDur") { p.settings.useRecDur = t.checked; saveSettings(); render(); }
   else if (t.id === "startSel" && t.value !== "") {
     const L = spokenIdx(), hi = +t.value; let pos = L.findIndex(j => j >= hi); if (pos < 0) pos = 0;
@@ -1261,7 +1508,8 @@ document.addEventListener("submit", async e => {
 document.addEventListener("focusout", () => setTimeout(() => { if (softPending) softRender(); }, 0));
 document.addEventListener("input", e => { if (e.target.id === "tlRange") tlPreview(+e.target.value); });
 document.addEventListener("input", e => { if (e.target.id === "spw") { S.play.settings.spw = +e.target.value; } });
-document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("#stage").hidden && !RUN.lock) lock(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("#stage").hidden) lock(); });
+window.addEventListener("focus", () => { if (!$("#stage").hidden) lock(); });
 
 /* ---------- fichier .souffleur.json : pièce découpée + voix ---------- */
 const b64 = blob => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(blob); });
