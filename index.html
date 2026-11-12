@@ -126,6 +126,14 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .who{font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:.82em;margin-right:.35em}
 .b-did .who{font-style:normal}
 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-left:6px;vertical-align:middle}
+.st.redo{border-color:var(--danger);color:var(--danger)}
+details summary{cursor:pointer;font-size:14px;color:var(--accent);font-weight:500}
+.chgs{display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:50vh;overflow:auto}
+.chg{font-family:var(--f-script);font-size:16px;line-height:1.3;padding:6px 8px;border-radius:6px;background:var(--bg);overflow-wrap:anywhere}
+.chg .k{font:600 10px var(--f-ui);text-transform:uppercase;letter-spacing:.08em;margin-right:6px;color:var(--muted)}
+.chg.new .k{color:#2E9D5B}.chg.del .k{color:var(--danger)}.chg.mod .k{color:var(--accent)}
+.chg.del{text-decoration:line-through;text-decoration-color:var(--muted)}
+.chg small{font:12px var(--f-ui);color:var(--muted);text-decoration:none}
 .ins{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .ins .btn{justify-content:center;padding:8px 6px;font-size:13px}
 .editor{font-family:var(--f-ui);font-size:14px;background:var(--bg);border:1px solid var(--accent);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px}
@@ -182,7 +190,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 </style>
 
 <div id="app">
-  <header><h1>Echorae</h1><span class="ver">v10.11-3</span><span class="play" id="hdrPlay"></span><span class="sync" id="sync"></span><span class="me" id="meChip" hidden></span></header>
+  <header><h1>Echorae</h1><span class="ver">v12.11</span><span class="play" id="hdrPlay"></span><span class="sync" id="sync"></span><span class="me" id="meChip" hidden></span></header>
   <main id="main"><div class="wrap" id="view"></div></main>
   <nav>
     <button data-tab="piece" aria-current="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h7"/></svg>Pièce</button>
@@ -317,7 +325,7 @@ function parseText(raw) {
       out.push({ id: uid(), type: /^\(.*\)$/.test(t) ? "didasc" : "line", who: b.who, text: t });
     }
   }
-  out.forEach(b => { if (b.type === "didasc") b.text = b.text.replace(/^\(\s*/, "").replace(/\s*\)\.?$/, ""); });
+  out.forEach(b => { if (b.type === "didasc") b.text = b.text.replace(/^[(\s]+/, "").replace(/[)\s]+\.?$/, "").replace(/\(\s*\(/g, "(").replace(/\)\s*\)/g, ")"); });
   const merged = [];
   for (const b of out.filter(b => b.text && b.text.trim())) {
     const l = merged[merged.length - 1];
@@ -345,19 +353,31 @@ async function pdfToText(file) {
     const tc = await page.getTextContent();
     const fonts = {};
     const isIt = fn => { if (!(fn in fonts)) { let n = ""; try { n = page.commonObjs.get(fn).name || ""; } catch (e) {} fonts[fn] = /italic|oblique/i.test(n); } return fonts[fn]; };
-    const lines = []; let segs = [], lastY = null, lastEnd = null, lastH = 12;
-    const flush = () => { if (segs.some(s => s.t.trim())) lines.push({ t: renderLine(segs), y: lastY, h: lastH }); segs = []; lastEnd = null; };
+    /* Lecture dans l'ordre visuel de la page (haut → bas, gauche → droite) : certains PDF
+       (exports LibreOffice notamment) rangent le texte dans un autre ordre en interne. */
+    const items = [];
     for (const it of tc.items) {
-      if (!("str" in it)) continue;
-      if (!it.str) { if (it.hasEOL) flush(); continue; }
-      const x = it.transform[4], y = it.transform[5], h = Math.abs(it.transform[3]) || it.height || 12;
-      if (lastY !== null && Math.abs(y - lastY) > h * 0.5) flush();
-      let t = it.str;
-      if (lastEnd !== null && x - lastEnd > h * 0.15 && !t.startsWith(" ") && !segs[segs.length - 1]?.t.endsWith(" ")) t = " " + t;
-      segs.push({ t, it: isIt(it.fontName) }); lastY = y; lastEnd = x + (it.width || 0); lastH = h;
-      if (it.hasEOL) flush();
+      if (!("str" in it) || !it.str || !it.str.trim() && !it.str.length) continue;
+      items.push({ str: it.str, x: it.transform[4], y: it.transform[5], h: Math.abs(it.transform[3]) || it.height || 12, w: it.width || 0, it: isIt(it.fontName) });
     }
-    flush();
+    items.sort((a, b) => b.y - a.y || a.x - b.x);
+    const rows = [];
+    for (const it of items) {
+      const r = rows[rows.length - 1];
+      if (r && Math.abs(r.y - it.y) <= Math.min(r.h, it.h) * 0.45) r.items.push(it);
+      else rows.push({ y: it.y, h: it.h, items: [it] });
+    }
+    const lines = [];
+    for (const r of rows) {
+      r.items.sort((a, b) => a.x - b.x);
+      const segs = []; let lastEnd = null;
+      for (const it of r.items) {
+        let t = it.str;
+        if (lastEnd !== null && it.x - lastEnd > it.h * 0.15 && !t.startsWith(" ") && !segs[segs.length - 1]?.t.endsWith(" ")) t = " " + t;
+        segs.push({ t, it: it.it }); lastEnd = it.x + it.w;
+      }
+      if (segs.some(sg => sg.t.trim())) lines.push({ t: renderLine(segs), y: r.y, h: r.h });
+    }
     lines.forEach(l => chars += l.t.length);
     pages.push(lines);
   }
@@ -723,7 +743,7 @@ function viewPiece() {
   const nl = b.filter(x => x.type === "line").length, nd = b.filter(x => x.type === "didasc").length;
   const cs = chars();
   const counts = Object.fromEntries(cs.map(c => [c, b.filter(x => x.type === "line" && x.who === c).length]));
-  let h = importCard(p) + migrateCard() + troupeCard() + accountCard() + `
+  let h = importCard(p) + migrateCard() + updateCard() + troupeCard() + accountCard() + `
 <div class="card">
     <div class="row"><div class="field"><span class="label">Titre</span><input type="text" id="titleIn" value="${esc(p.title)}"></div></div>
     <div class="stats"><div><b>${cs.length}</b><span>personnages</span></div><div><b>${nl}</b><span>répliques</span></div><div><b>${nd}</b><span>didascalies</span></div></div>
@@ -809,13 +829,14 @@ function viewVoix() {
         return `<option value="${esc(c)}" ${c === S.voixWho ? "selected" : ""}>${esc(c)} — ${d}/${all.length}${c === S.play.settings.me ? " (ton rôle)" : ""}</option>`;
       }).join("")}</select></div>
     <div class="note">Touche une réplique pour l'enregistrer, l'écouter ou modifier son texte.</div>
+    ${items.some(o => o.b.redo && S.rec.has(key(o.b))) ? `<div class="msg">${(n => n > 1 ? n + " répliques de " + esc(S.voixWho) + " ont changé de texte depuis leur enregistrement : elles sont marquées « À réenregistrer »." : "Une réplique de " + esc(S.voixWho) + " a changé de texte depuis son enregistrement : elle est marquée « À réenregistrer ».")(items.filter(o => o.b.redo && S.rec.has(key(o.b))).length)}</div>` : ""}
     <div class="note">${done} réplique${done > 1 ? "s" : ""} enregistrée${done > 1 ? "s" : ""} sur ${items.length}. Sans enregistrement, la voix de synthèse lit la réplique pendant la répétition.</div>
     ${S.cloud && (!U.canWrite || !U.canUpload) ? `<div class="msg">Tu peux écouter les voix, mais pas en enregistrer. Demande le rôle Éditeur à la personne qui a partagé l'appli.</div>` : ""}
     <div class="row" ${S.cloud && (!U.canWrite || !U.canUpload) ? "hidden" : ""}><button class="btn primary" data-act="recFirst">${done < items.length ? "Enregistrer la suivante" : "Réécouter depuis le début"}</button></div>
   </div>
   <div class="list">${items.map((o, n) => `<button class="item" data-act="openRec" data-i="${o.i}">
       <span class="n">${n + 1}</span><span class="t">${esc(o.b.text)}</span>
-      ${S.rec.has(key(o.b)) ? `<span class="st ok">${C.by && C.by.get(key(o.b)) ? esc("Par " + nameOf(C.by.get(key(o.b)))) : "Enregistrée"}</span>` : `<span class="st tts">Synthèse</span>`}
+      ${S.rec.has(key(o.b)) && o.b.redo ? `<span class="st redo">À réenregistrer</span>` : S.rec.has(key(o.b)) ? `<span class="st ok">${C.by && C.by.get(key(o.b)) ? esc("Par " + nameOf(C.by.get(key(o.b)))) : "Enregistrée"}</span>` : `<span class="st tts">Synthèse</span>`}
     </button>`).join("")}</div>`;
 }
 
@@ -990,7 +1011,7 @@ async function recStart() {
 async function recordSave(blob) {
   const b = S.play.blocks[S.sheetIdx]; if (!b) return;
   S.sheetMsg = { t: S.cloud ? "Envoi de l'enregistrement à la troupe…" : "Enregistrement…" }; renderSheet();
-  try { await saveAudio(b, blob); S.sheetMsg = null; } catch (e) { S.sheetMsg = { err: true, t: errText(e) }; }
+  try { await saveAudio(b, blob); S.sheetMsg = null; if (b.redo) { delete b.redo; savePlay(); } } catch (e) { S.sheetMsg = { err: true, t: errText(e) }; }
   render();
 }
 function nextLineIdx(from, who) {
@@ -1386,7 +1407,7 @@ document.addEventListener("click", async e => {
     case "openRec": if (S.shNew) { dropEmpty(S.sheetIdx); S.shNew = false; render(); return; } S.sheetIdx = +el.dataset.i; S.sheetMsg = null; S.shEdit = false; S.shConfirmDel = false; renderSheet(); break;
     case "recFirst": {
       const items = p.blocks.map((b, i) => ({ b, i })).filter(o => o.b.type === "line" && o.b.who === S.voixWho);
-      const f = items.find(o => !S.rec.has(key(o.b))) || items[0]; if (f) { S.sheetIdx = f.i; renderSheet(); } break;
+      const f = items.find(o => !S.rec.has(key(o.b)) || o.b.redo) || items[0]; if (f) { S.sheetIdx = f.i; renderSheet(); } break;
     }
     case "closeSheet": if (REC.mr) REC.mr.stop(); if (S.shNew) { dropEmpty(S.sheetIdx); S.shNew = false; S.shEdit = false; S.sheetIdx = -1; render(); break; } S.sheetIdx = -1; S.shConfirmDel = false; renderSheet(); break;
     case "recToggle": if (REC.mr) REC.mr.stop(); else recStart(); break;
@@ -1400,6 +1421,16 @@ document.addEventListener("click", async e => {
     }
     case "set": p.settings[el.dataset.k] = el.dataset.v; saveSettings(); render(); break;
     case "go": startRehearsal(); break;
+    case "updCancel": S.upd = null; render(); break;
+    case "updApply": {
+      if (!S.upd || !S.upd.plan) return;
+      const pl = S.upd.plan, ch = pl.changes;
+      p.blocks = pl.blocks; S.upd = null; S.edit = -1;
+      const sid = p.settings.startId; if (sid && !p.blocks.some(b => b.id === sid)) { p.settings.startId = ""; p.settings.start = 0; saveSettings(); }
+      savePlay();
+      S.msg = { t: `Nouvelle version appliquée : ${pl.same} répliques identiques, ${ch.filter(x => x.kind === "mod").length} modifiées, ${ch.filter(x => x.kind === "new").length} nouvelles, ${ch.filter(x => x.kind === "del").length} supprimées.` };
+      render(); window.scrollTo(0, 0); $("#main").scrollTop = 0; break;
+    }
     case "lockHelp": S.lockHelp = !S.lockHelp; drawStage(); break;
     case "setNum": p.settings[el.dataset.k] = +el.dataset.v; saveSettings(); render(); break;
     case "tlStep": setTlPos(+$("#tlRange").value + +el.dataset.d); break;
@@ -1453,6 +1484,16 @@ document.addEventListener("change", async e => {
   else if (t.id === "myName") {
     const n = t.value.trim().slice(0, 40); U.me.name = n; U.names[U.me.id] = { id: U.me.id, name: n }; setChip();
     sb.from("profiles").upsert({ id: U.me.id, name: n }).then(r => { if (r.error) { S.msg = { err: true, t: errText(r.error) }; render(); } });
+    render();
+  }
+  else if (t.id === "updInput" && t.files[0]) {
+    const f = t.files[0]; t.value = "";
+    S.upd = { busy: true, name: f.name }; render();
+    try {
+      const nb = await readPlayFile(f);
+      if (!nb.some(b => b.type === "line")) throw new Error("aucune réplique trouvée dans ce fichier.");
+      S.upd = { name: f.name, plan: planUpdate(p.blocks, nb) };
+    } catch (err) { S.upd = null; S.msg = { err: true, t: "Mise à jour impossible : " + (err.message || err) }; }
     render();
   }
   else if (t.id === "titleIn") { p.title = t.value.trim() || "Sans titre"; savePlay(); render(); }
@@ -1510,6 +1551,90 @@ document.addEventListener("input", e => { if (e.target.id === "tlRange") tlPrevi
 document.addEventListener("input", e => { if (e.target.id === "spw") { S.play.settings.spw = +e.target.value; } });
 document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("#stage").hidden) lock(); });
 window.addEventListener("focus", () => { if (!$("#stage").hidden) lock(); });
+
+/* ---------- mise à jour du texte d'une pièce existante ----------
+   Les répliques identiques gardent leur identifiant (donc leur voix). Une réplique réécrite du même
+   personnage, au même endroit, garde aussi sa voix mais est marquée « à réenregistrer ». */
+const nkey = t => fold(t).toLowerCase().replace(/[^a-z0-9]+/g, "");
+function bigramSim(a, b) {
+  a = nkey(a); b = nkey(b); if (!a || !b) return 0; if (a === b) return 1;
+  const grams = t => { const m = new Map(); for (let i = 0; i < t.length - 1; i++) { const g = t.slice(i, i + 2); m.set(g, (m.get(g) || 0) + 1); } return m; };
+  const A = grams(a), B = grams(b); let inter = 0;
+  for (const [g, n] of A) inter += Math.min(n, B.get(g) || 0);
+  return 2 * inter / Math.max(1, a.length - 1 + b.length - 1);
+}
+function planUpdate(oldBlocks, newBlocks) {
+  const O = oldBlocks.filter(b => b.type === "line"), N = newBlocks.filter(b => b.type === "line");
+  const k = b => b.who + "|" + nkey(b.text);
+  const n = O.length, m = N.length, dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = k(O[i]) === k(N[j]) ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const map = new Map(); /* nouvelle réplique -> {old, kind} */
+  const removed = [], hunk = { r: [], a: [] };
+  const flushHunk = () => {
+    const used = new Set();
+    for (const nb of hunk.a) {
+      let best = null, bs = 0.5;
+      for (const ob of hunk.r) { if (used.has(ob) || ob.who !== nb.who) continue; const sc = bigramSim(ob.text, nb.text); if (sc > bs) { bs = sc; best = ob; } }
+      if (best) { used.add(best); map.set(nb, { old: best, kind: "mod" }); } else map.set(nb, { old: null, kind: "new" });
+    }
+    hunk.r.forEach(ob => { if (!used.has(ob)) removed.push(ob); });
+    hunk.r = []; hunk.a = [];
+  };
+  let i = 0, j = 0;
+  while (i < n || j < m) {
+    if (i < n && j < m && k(O[i]) === k(N[j])) { flushHunk(); map.set(N[j], { old: O[i], kind: "same" }); i++; j++; }
+    else if (j < m && (i >= n || dp[i][j + 1] >= dp[i + 1][j])) { hunk.a.push(N[j]); j++; }
+    else { hunk.r.push(O[i]); i++; }
+  }
+  flushHunk();
+  /* didascalies et titres : on réutilise l'identifiant d'un bloc au texte identique */
+  const pool = new Map(); oldBlocks.filter(b => b.type !== "line").forEach(b => { const kk = b.type + "|" + nkey(b.text); if (!pool.has(kk)) pool.set(kk, []); pool.get(kk).push(b.id); });
+  const hasVoice = b => S.rec.has(S.play.id + ":" + b.id);
+  const out = [], changes = [];
+  for (const nb of newBlocks) {
+    if (nb.type !== "line") { const q = pool.get(nb.type + "|" + nkey(nb.text)); out.push({ id: q && q.length ? q.shift() : uid(), type: nb.type, who: nb.who || "", text: nb.text }); continue; }
+    const mm = map.get(nb);
+    if (mm.kind === "same") { const ob = mm.old; out.push({ ...ob, who: nb.who, text: nb.text }); continue; }
+    if (mm.kind === "mod") {
+      const ob = mm.old, v = hasVoice(ob), b = { id: ob.id, type: "line", who: nb.who, text: nb.text };
+      if (v) b.redo = true; out.push(b); changes.push({ kind: "mod", who: nb.who, text: nb.text, was: ob.text, voice: v }); continue;
+    }
+    out.push({ id: uid(), type: "line", who: nb.who, text: nb.text }); changes.push({ kind: "new", who: nb.who, text: nb.text });
+  }
+  removed.forEach(ob => changes.push({ kind: "del", who: ob.who, text: ob.text, voice: hasVoice(ob) }));
+  const oldChars = new Set(O.map(b => b.who)), newChars = [...new Set(N.map(b => b.who))].filter(c => !oldChars.has(c));
+  const goneChars = [...oldChars].filter(c => !N.some(b => b.who === c));
+  return { blocks: out, changes, same: [...map.values()].filter(x => x.kind === "same").length, newChars, goneChars };
+}
+async function readPlayFile(f) {
+  if (/\.(json|echorae|souffleur)$/i.test(f.name) || f.type === "application/json") {
+    let d; try { d = JSON.parse(await f.text()); } catch (e) { throw new Error("ce fichier n'est pas un fichier Echorae."); }
+    if (!d || !Array.isArray(d.blocks)) throw new Error("ce fichier n'est pas un fichier Echorae.");
+    return d.blocks.filter(b => b && b.text && /^(line|didasc|heading)$/.test(b.type)).map(b => ({ type: b.type, who: String(b.who || "").toUpperCase(), text: String(b.text) }));
+  }
+  if (/\.txt$/i.test(f.name) || f.type === "text/plain") return parseText(await f.text());
+  const r = await pdfToText(f);
+  if (r.chars / r.pages < 40) throw new Error("ce PDF ne contient presque pas de texte (page scannée ?).");
+  return parseText(r.text);
+}
+function updateCard() {
+  if (S.cloud && !U.canWrite) return "";
+  const u = S.upd;
+  if (!u) return `<div class="card"><span class="label">Nouvelle version du texte</span>
+    <p class="note" style="margin:0">L'auteur a modifié la pièce ? Importe la nouvelle version (PDF ou fichier .echorae.json) : les répliques inchangées gardent leurs voix.</p>
+    <div class="row"><label class="btn filebtn" for="updInput">Mettre à jour le texte<input type="file" id="updInput" accept=".pdf,application/pdf,.txt,text/plain,.json,application/json"></label></div></div>`;
+  if (u.busy) return `<div class="card"><span class="label">Nouvelle version du texte</span><p class="note" style="margin:0">Lecture et comparaison en cours…</p></div>`;
+  const c = u.plan.changes, mods = c.filter(x => x.kind === "mod"), news = c.filter(x => x.kind === "new"), dels = c.filter(x => x.kind === "del");
+  const redo = mods.filter(x => x.voice).length, lost = dels.filter(x => x.voice).length;
+  const row = x => `<div class="chg ${x.kind}"><span class="k">${x.kind === "new" ? "Nouvelle" : x.kind === "del" ? "Supprimée" : "Modifiée"}</span><span class="who" style="${cstyle(x.who)}">${esc(x.who)}.</span>${esc(x.text.slice(0, 160))}${x.voice ? `<small>${x.kind === "del" ? " · sa voix ne sera plus utilisée" : " · voix gardée, à réenregistrer"}</small>` : ""}</div>`;
+  return `<div class="card"><span class="label">Nouvelle version : ${esc(u.name)}</span>
+    <div class="stats"><div><b>${u.plan.same}</b><span>identiques</span></div><div><b>${mods.length}</b><span>modifiées</span></div><div><b>${news.length}</b><span>nouvelles</span></div><div><b>${dels.length}</b><span>supprimées</span></div></div>
+    ${u.plan.newChars.length ? `<p class="note" style="margin:0">Nouveau${u.plan.newChars.length > 1 ? "x" : ""} personnage${u.plan.newChars.length > 1 ? "s" : ""} : ${u.plan.newChars.map(esc).join(", ")}.</p>` : ""}
+    ${u.plan.goneChars.length ? `<p class="note" style="margin:0">Personnage${u.plan.goneChars.length > 1 ? "s" : ""} qui n'apparai${u.plan.goneChars.length > 1 ? "ssent" : "t"} plus : ${u.plan.goneChars.map(esc).join(", ")}.</p>` : ""}
+    <p class="note" style="margin:0">Les voix des ${u.plan.same} répliques identiques sont conservées.${redo ? (redo > 1 ? ` ${redo} répliques modifiées gardent leur voix mais seront marquées « À réenregistrer ».` : " 1 réplique modifiée garde sa voix mais sera marquée « À réenregistrer ».") : ""}${lost ? (lost > 1 ? ` ${lost} voix de répliques supprimées ne seront plus utilisées.` : " La voix d'une réplique supprimée ne sera plus utilisée.") : ""}</p>
+    <details><summary>Voir les ${c.length} changements</summary><div class="chgs">${c.map(row).join("")}</div></details>
+    <div class="row"><button class="btn primary" data-act="updApply">Appliquer la nouvelle version</button><button class="btn ghost" data-act="updCancel">Annuler</button></div></div>`;
+}
 
 /* ---------- fichier .souffleur.json : pièce découpée + voix ---------- */
 const b64 = blob => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(blob); });
